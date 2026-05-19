@@ -7,8 +7,8 @@ class PipetteAPI:
         try:
             rm = pyvisa.ResourceManager(lib_path)
             list1 = rm.list_resources(resource_name)
-            self.inst = rm.open_resource(list1[0])
-            self.inst.write("s")
+            self.inst = rm.open_resource(list1[0], delay=0.1)
+            self.write("s")
         except:
             self.testmode = 1
             #print("Error of importing library")
@@ -19,16 +19,28 @@ class PipetteAPI:
         self.speedset = {'m0':700, 'm1':3200, 'm2':1000}
 
         if verbose and not self.testmode:
-            self.inst.query('*IDN?')
+            self.query('*IDN?')
         self.start()
 
+    def write(self, command):
+        if self.testmode:
+            return
+        self.inst.write(command)
+        sleep(0.1)
+    
+    def query(self, command):
+        if self.testmode:
+            return 0
+        q = self.inst.query(command)
+        sleep(0.1)
+        return q
+
     def wait_for_stop(self,nr):
-        # stopset = ['_','A','B','C','D','E','F','G','H','I','J']
+       
         if self.testmode:
             return 0
         while True:
-            values = self.inst.query(f'g{nr}')
-            sleep(0.1)
+            values = self.query(f'g{nr}')
             if values == '_':
                 return 1
             if str(values).split(' ')[0] == '1':
@@ -40,118 +52,114 @@ class PipetteAPI:
         if self.testmode:
             return
         while self.wait_for_stop(motor):
-            self.inst.write(f'{motor} 100 {self.speedset[motor]}')
+            self.write(f'{motor} 100 {self.speedset[motor]}')
         
     def stopMotors(self):
         if self.testmode:
             return
-        self.inst.write('s')
-    
+        self.write('s')
    
 
-    def absoluteMoveM0(self, steps, speed = 200):
-        if self.testmode:
-            return
-        self.start()
-        self.m0Position = 0
-        self.inst.write(f'm0 {steps} {speed}')
-        self.m0Position = (self.m0Position + steps)*self.wait_for_stop('0')
-        #self.stopMotors()
+    # def absoluteMoveM0(self, steps, speed = 200):
+    #     if self.testmode:
+    #         return
+    #     self.start()
+    #     self.m0Position = 0
+    #     self.write(f'm0 {steps} {speed}')
+    #     self.m0Position = (self.m0Position + steps)*self.wait_for_stop('0')
+    #     self.stopMotors()
 
-    def absoluteMoveM1(self, steps, speed = 3200):
-        if self.testmode:
-            return
-        self.move2stop('m1')
-        self.m1Position = 0
-        self.inst.write(f'm1 {steps} {speed}')
-        self.m1Position = (self.m1Position + steps)*self.wait_for_stop('1')
-        #self.stopMotors()
+    # def absoluteMoveM1(self, steps, speed = 3200):
+    #     if self.testmode:
+    #         return
+    #     self.move2stop('m1')
+    #     self.m1Position = 0
+    #     self.write(f'm1 {steps} {speed}')
+    #     self.m1Position = (self.m1Position + steps)*self.wait_for_stop('1')
+    #     self.stopMotors()
 
-    def absoluteMoveM2(self, steps, speed = 700):
-        if self.testmode:
-            return
-        self.move2stop('m2')
-        self.m2Position = 0
-        self.inst.write(f'm2 {steps} {speed}')
-        self.m2Position = (self.m2Position + steps)*self.wait_for_stop('2')
-        self.stopMotors()
+    # def absoluteMoveM2(self, steps, speed = 700):
+    #     if self.testmode:
+    #         return
+    #     self.move2stop('m2')
+    #     self.m2Position = 0
+    #     self.write(f'm2 {steps} {speed}')
+    #     self.m2Position = (self.m2Position + steps)*self.wait_for_stop('2')
+    #     self.stopMotors()
         
     def moveM0(self, steps, speed = 200):
         if self.testmode:
             return
-        self.inst.write(f'm0 {steps} {speed}')
-        sleep(0.1)
+        self.write(f'm0 {steps} {speed}')
         self.m0Position = (self.m0Position + steps)*self.wait_for_stop('0')
         self.stopMotors()
 
     def moveM1(self, steps, speed = 3200):
         if self.testmode:
             return
-        self.inst.write(f'm1 {steps} {speed}')
-        sleep(0.1)
+        self.write(f'm1 {steps} {speed}')
         self.m1Position = (self.m1Position + steps)*self.wait_for_stop('1')
         self.stopMotors()
 
     def moveM2(self, steps, speed = 700):
         if self.testmode:
             return
-        self.inst.write(f'm2 {steps} {speed}')
-        sleep(0.1)
+        self.write(f'm2 {steps} {speed}')
         self.m2Position = (self.m2Position + steps)*self.wait_for_stop('2')
         self.stopMotors()
 
     def start(self):
         if self.testmode:
             return
-        self.inst.write("s")
-        sleep(0.1)
+        self.write("s")
+
         self.moveM0(500000, 300)
-        self.moveM1(500000, 3200)
         self.moveM2(500000, 1000)
+        self.moveM1(500000, 3200)
+        self.stopMotors()
 
-
-        #self.stopMotors()
     def move2position(self, position):
         if self.testmode:
             return
-        self.start()
+        self.moveM0(500000, 300)
+        self.moveM2(500000, 1000)
         self.moveM2(position[2])
-
         self.moveM0(position[0])
         
     def oneStepSplitOut(self,position, volume):
         if self.testmode:
             return
         self.move2position(position)
-        self.moveM1((volume)/self.steps2volume+50)
+        self.moveM1((volume)/self.steps2volume+100)
         self.moveM1(-50)
 
     def onlySplitOut(self,volume):
         if self.testmode:
             return
-        self.moveM1((volume)/self.steps2volume+50)
+        self.moveM1((volume)/self.steps2volume+100)
         self.moveM1(-50)
 
     def oneStepdrawUp(self,position, volume):
         if self.testmode:
             return
-        self.moveM1(-100)
-        self.moveM1(50)
-        self.move2position(position)
-        self.moveM1(-(volume)/self.steps2volume+50)
+        self.moveM1(10000)
         self.moveM1(-50)
+        self.move2position(position)
+        self.moveM1(-(volume)/self.steps2volume-50)
+        self.moveM0(1000)
 
     def prepareDrawUp(self):
         if self.testmode:
             return
-        self.moveM1(-100)
-        self.moveM1(50)
+        self.moveM1(10000)
+        self.moveM1(-50)
 
     def onlyDrawUp(self, volume):
         if self.testmode:
             return
-        self.moveM1(-(volume)/self.steps2volume+50)
-        self.moveM1(-50)
+        self.moveM1(-(volume)/self.steps2volume-50)
+        self.moveM0(1000)
+
     def close(self):
         if self.testmode:
             return

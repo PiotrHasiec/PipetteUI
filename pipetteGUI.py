@@ -64,6 +64,11 @@ class PipetteGUI(QMainWindow):
             self.m2speed  = self.settings["m2speed"]
             self.steps2volume = self.settings["steps2volume"]
             self.pipette.steps2volume = self.steps2volume
+
+            self.samplePositonlabel.setText(f"Sample position: {self.SamplePosition}")
+            self.samplePositonlabel2.setText(f"Sample position: {self.SamplePosition}")
+            self.tubePositonlabel.setText(f"Tube position: {self.TubePosition}")
+            self.tubePositonlabel2.setText(f"Tube position: {self.TubePosition}")
             self.show()    
        
     def initPosition(self):
@@ -118,10 +123,14 @@ class PipetteGUI(QMainWindow):
         layout.addWidget(self.spitOutVolume,1,1)
         layout.addWidget(self.drawUpunits,0,2)
         layout.addWidget(self.spitOutunits,1,2)
+
         self.positonlabel2 = QLabel(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
         self.samplePositonlabel2 = QLabel(f"Sample position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
         self.tubePositonlabel2 = QLabel(f"Tube position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        
+        self.positonlabel2.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
+        self.samplePositonlabel2.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
+        self.tubePositonlabel2.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
+
         layout.addWidget(self.positonlabel2,2,0,1,4)
         layout.addWidget(self.samplePositonlabel2,3,0,1,4)
         layout.addWidget(self.tubePositonlabel2,4,0,1,4)
@@ -231,6 +240,8 @@ class PipetteGUI(QMainWindow):
         self.tubePositonlabel = QLabel(f"Tube position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
 
         self.positonlabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
+        self.samplePositonlabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
+        self.tubePositonlabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
 
         # Add buttons to layout
         layout.addWidget(self.M0ButtonUp,1,0)

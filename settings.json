@@ -1,7 +1,7 @@
 {
+    "m0speed": 3200,
     "m1speed": 3200,
     "m2speed": 3200,
-    "m3speed": 3200,
     "steps2volume": 100,
     "SamplePosition": [0, 0, 0],
     "TubePosition": [10, 10, 10]
