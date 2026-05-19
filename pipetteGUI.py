@@ -59,18 +59,18 @@ class PipetteGUI(QMainWindow):
             self.settings = json.load(json_file)
             self.SamplePosition = self.settings["SamplePosition"]
             self.TubePosition = self.settings["TubePosition"]
+            self.m0speed  = self.settings["m0speed"]
             self.m1speed  = self.settings["m1speed"]
             self.m2speed  = self.settings["m2speed"]
-            self.m3speed  = self.settings["m3speed"]
             self.steps2volume = self.settings["steps2volume"]
             self.pipette.steps2volume = self.steps2volume
             self.show()    
        
     def initPosition(self):
+        self.M0Position = 0
         self.M1Position = 0
         self.M2Position = 0
-        self.M3Position = 0
-        print("Initializing pipette position")
+        #print("Initializing pipette position")
     
     # Funkcja dodająca wenętrzeny widżet do okna
     def createTabs(self):
@@ -101,11 +101,11 @@ class PipetteGUI(QMainWindow):
         self.spitOutunits.addItem("μL")
         self.spitOutunits.addItem("steps")
         self.GetButtonUp = QPushButton('Draw up the solution', self)
-        self.M2ButtonUp = QPushButton('Spit out the solution', self)
+        self.M1ButtonUp = QPushButton('Spit out the solution', self)
         self.GetButtonUp.clicked.connect(self.drawUp)
-        self.M2ButtonUp.clicked.connect(self.spitOut)
+        self.M1ButtonUp.clicked.connect(self.spitOut)
         layout.addWidget(self.GetButtonUp,0,0)
-        layout.addWidget(self.M2ButtonUp,1,0)
+        layout.addWidget(self.M1ButtonUp,1,0)
 
         self.drawUpVolume = QLineEdit()
         self.drawUpVolume.setPlaceholderText("Volume to draw up (μL)")
@@ -118,6 +118,13 @@ class PipetteGUI(QMainWindow):
         layout.addWidget(self.spitOutVolume,1,1)
         layout.addWidget(self.drawUpunits,0,2)
         layout.addWidget(self.spitOutunits,1,2)
+        self.positonlabel2 = QLabel(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.samplePositonlabel2 = QLabel(f"Sample position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.tubePositonlabel2 = QLabel(f"Tube position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        
+        layout.addWidget(self.positonlabel2,2,0,1,4)
+        layout.addWidget(self.samplePositonlabel2,3,0,1,4)
+        layout.addWidget(self.tubePositonlabel2,4,0,1,4)
 
         return layout
 
@@ -127,7 +134,7 @@ class PipetteGUI(QMainWindow):
         else:
             volume = 50
             self.drawUpVolume.setText("50")
-        print("Prepare draw up")
+        #print("Prepare draw up")
         self.pipette.prepareDrawUp()
         if self.TubePosition is None:
             error_dialog = QtWidgets.QErrorMessage()
@@ -135,11 +142,17 @@ class PipetteGUI(QMainWindow):
             if error_dialog.exec_():
                 return
 
-        print(f"Go to position of Tube: {self.TubePosition}")
+        #print(f"Go to position of Tube: {self.TubePosition}")
         self.pipette.move2position(position=self.TubePosition)
-        print(f"Drawing up the solution: {volume} {self.drawUpunits.currentText()}")
+        #print(f"Drawing up the solution: {volume} {self.drawUpunits.currentText()}")
         self.pipette.onlyDrawUp(volume=volume)
         # self.pipette.drawUp(self.TubePosition,volume)
+        self.M0Position = self.pipette.m0Position
+        self.M1Position = self.pipette.m1Position
+        self.M2Position = self.pipette.m2Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+
         
         
     def spitOut(self):
@@ -153,11 +166,16 @@ class PipetteGUI(QMainWindow):
             error_dialog.showMessage('Oh no!')
             if error_dialog.exec_():
                 return
-        print(f"Go to position of Sample: {self.SamplePosition}")
+        #print(f"Go to position of Sample: {self.SamplePosition}")
         self.pipette.move2position(self.SamplePosition)
-        print(f"Spitting out the solution: {volume} {self.spitOutunits.currentText()}")
+        #print(f"Spitting out the solution: {volume} {self.spitOutunits.currentText()}")
         self.pipette.onlySplitOut(volume)
-        # self.pipette.splitOut(volume,speed=self.m2speed)
+        self.M0Position = self.pipette.m0Position
+        self.M1Position = self.pipette.m1Position
+        self.M2Position = self.pipette.m2Position
+
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        # self.pipette.splitOut(volume,speed=self.m1speed)
 
     def Z1Init(self):
 
@@ -166,13 +184,13 @@ class PipetteGUI(QMainWindow):
         layout = QGridLayout()
 
         # Create buttons for pipette control
-        self.M1ButtonUp = QPushButton('Motor 1 Up', self)
-        self.M2ButtonUp = QPushButton('Motor 2 Up', self)
-        self.M3ButtonUp = QPushButton('Motor 3 Up', self)
+        self.M0ButtonUp = QPushButton('Motor 1 Up', self)
+        self.M1ButtonUp = QPushButton('Motor 2 Up', self)
+        self.M2ButtonUp = QPushButton('Motor 3 Up', self)
 
-        self.M1ButtonDown = QPushButton('Motor 1 Down', self)
-        self.M2ButtonDown = QPushButton('Motor 2 Down', self)
-        self.M3ButtonDown = QPushButton('Motor 3 Down', self)
+        self.M0ButtonDown = QPushButton('Motor 1 Down', self)
+        self.M1ButtonDown = QPushButton('Motor 2 Down', self)
+        self.M2ButtonDown = QPushButton('Motor 3 Down', self)
         text01 = QLabel('Ustawienia pozycji pipety')
         text01.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         text2 = QLabel('Liczba kroków do przesunięcia pipety')
@@ -187,43 +205,48 @@ class PipetteGUI(QMainWindow):
 
 
         #Create forms
+        self.M0Steps = QLineEdit()
+        self.M0Steps.setPlaceholderText("Steps for Motor 1")
         self.M1Steps = QLineEdit()
-        self.M1Steps.setPlaceholderText("Steps for Motor 1")
+        self.M1Steps.setPlaceholderText("Steps for Motor 2")
         self.M2Steps = QLineEdit()
-        self.M2Steps.setPlaceholderText("Steps for Motor 2")
-        self.M3Steps = QLineEdit()
-        self.M3Steps.setPlaceholderText("Steps for Motor 3")
+        self.M2Steps.setPlaceholderText("Steps for Motor 3")
+        self.M0Speed = QLineEdit()
+        self.M0Speed.setPlaceholderText("Speed for Motor 1")
         self.M1Speed = QLineEdit()
-        self.M1Speed.setPlaceholderText("Speed for Motor 1")
+        self.M1Speed.setPlaceholderText("Speed for Motor 2")
         self.M2Speed = QLineEdit()
-        self.M2Speed.setPlaceholderText("Speed for Motor 2")
-        self.M3Speed = QLineEdit()
-        self.M3Speed.setPlaceholderText("Speed for Motor 3")
+        self.M2Speed.setPlaceholderText("Speed for Motor 3")
 
         # Connect buttons to functions
+        self.M0ButtonUp.clicked.connect(self.moveM0Up)
         self.M1ButtonUp.clicked.connect(self.moveM1Up)
         self.M2ButtonUp.clicked.connect(self.moveM2Up)
-        self.M3ButtonUp.clicked.connect(self.moveM3Up)
+        self.M0ButtonDown.clicked.connect(self.moveM0Down)
         self.M1ButtonDown.clicked.connect(self.moveM1Down)
         self.M2ButtonDown.clicked.connect(self.moveM2Down)
-        self.M3ButtonDown.clicked.connect(self.moveM3Down)
 
+        self.positonlabel = QLabel(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.samplePositonlabel = QLabel(f"Sample position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.tubePositonlabel = QLabel(f"Tube position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+
+        self.positonlabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter) 
 
         # Add buttons to layout
-        layout.addWidget(self.M1ButtonUp,1,0)
-        layout.addWidget(self.M2ButtonUp,2,0)
-        layout.addWidget(self.M3ButtonUp,3,0)
-        layout.addWidget(self.M1ButtonDown,1,1)
-        layout.addWidget(self.M2ButtonDown,2,1)
-        layout.addWidget(self.M3ButtonDown,3,1)
+        layout.addWidget(self.M0ButtonUp,1,0)
+        layout.addWidget(self.M1ButtonUp,2,0)
+        layout.addWidget(self.M2ButtonUp,3,0)
+        layout.addWidget(self.M0ButtonDown,1,1)
+        layout.addWidget(self.M1ButtonDown,2,1)
+        layout.addWidget(self.M2ButtonDown,3,1)
       
-        layout.addWidget(self.M1Steps,1,2)
-        layout.addWidget(self.M2Steps,2,2)
-        layout.addWidget(self.M3Steps,3,2)
+        layout.addWidget(self.M0Steps,1,2)
+        layout.addWidget(self.M1Steps,2,2)
+        layout.addWidget(self.M2Steps,3,2)
 
-        layout.addWidget(self.M1Speed,1,3)
-        layout.addWidget(self.M2Speed,2,3)  
-        layout.addWidget(self.M3Speed,3,3)
+        layout.addWidget(self.M0Speed,1,3)
+        layout.addWidget(self.M1Speed,2,3)  
+        layout.addWidget(self.M2Speed,3,3)
 
         layout.addWidget(self.SaveSamplePositionButton,4,0,1,4)
         layout.addWidget(self.SaveTubePositionButton,5,0,1,4)
@@ -231,11 +254,28 @@ class PipetteGUI(QMainWindow):
         layout.addWidget(text01,0,0,1,2)
         layout.addWidget(text2,0,2,1,1)
         layout.addWidget(text3,0,3,1,1)
-
+        layout.addWidget(self.positonlabel,6,0,1,4)
+        layout.addWidget(self.samplePositonlabel,7,0,1,4)
+        layout.addWidget(self.tubePositonlabel,8,0,1,4)
 
 
         # Set the layout for the widget
         return layout
+
+    def moveM0Up(self):
+        if self.M0Steps.text().isdigit() and self.M0Speed.text().isdigit():
+            self.m0steps = int(self.M0Steps.text())
+            self.m0speed = int(self.M0Speed.text())
+        else:
+            self.m0steps = 2000
+            self.m0speed = 200
+            self.M0Steps.setText("2000")
+            self.M0Speed.setText("200")
+        self.pipette.moveM0(self.m0steps,self.m0speed)
+        self.M0Position = self.pipette.m0Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        #print(f"Moving pipette up by {self.m0steps} steps at speed {self.m0speed}")
 
     def moveM1Up(self):
         if self.M1Steps.text().isdigit() and self.M1Speed.text().isdigit():
@@ -246,32 +286,41 @@ class PipetteGUI(QMainWindow):
             self.m1speed = 3200
             self.M1Steps.setText("50")
             self.M1Speed.setText("3200")
-        self.M1Position += self.m1steps
-        print(f"Moving pipette up by {self.m1steps} steps at speed {self.m1speed}")
+        self.pipette.moveM1(-self.m1steps,self.m1speed)
+        self.M1Position = self.pipette.m1Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        #print(f"Moving pipette down by {self.m1steps} steps at speed {self.m1speed}")
 
     def moveM2Up(self):
         if self.M2Steps.text().isdigit() and self.M2Speed.text().isdigit():
             self.m2steps = int(self.M2Steps.text())
             self.m2speed = int(self.M2Speed.text())
         else:
-            self.m2steps = 50
-            self.m2speed = 3200
-            self.M2Steps.setText("50")
-            self.M2Speed.setText("3200")
-        self.M2Position += self.m2steps
-        print(f"Moving pipette down by {self.m2steps} steps at speed {self.m2speed}")
+            self.m2steps = 100
+            self.m2speed = 1000
+            self.M2Steps.setText("100")
+            self.M2Speed.setText("1000")
+        self.pipette.moveM2(-self.m2steps,self.m2speed)
+        self.M2Position = self.pipette.m2Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        #print(f"Moving pipette left by {self.m2steps} steps at speed {self.m2speed}")
 
-    def moveM3Up(self):
-        if self.M3Steps.text().isdigit() and self.M3Speed.text().isdigit():
-            self.m3steps = int(self.M3Steps.text())
-            self.m3speed = int(self.M3Speed.text())
+    def moveM0Down(self):
+        if self.M0Steps.text().isdigit() and self.M0Speed.text().isdigit():
+            self.m0steps = int(self.M0Steps.text())
+            self.m0speed = int(self.M0Speed.text())
         else:
-            self.m3steps = 50
-            self.m3speed = 3200
-            self.M3Steps.setText("50")
-            self.M3Speed.setText("3200")
-        self.M3Position += self.m3steps
-        print(f"Moving pipette left by {self.m3steps} steps at speed {self.m3speed}")
+            self.m0steps = 2000
+            self.m0speed = 200
+            self.M0Steps.setText("2000")
+            self.M0Speed.setText("700")
+        self.pipette.moveM0(-self.m0steps,self.m0speed)
+        self.M0Position = self.pipette.m0Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        #print(f"Moving pipette down by {-self.m0steps} steps at speed {self.m0speed}")
 
     def moveM1Down(self):
         if self.M1Steps.text().isdigit() and self.M1Speed.text().isdigit():
@@ -283,39 +332,51 @@ class PipetteGUI(QMainWindow):
             self.M1Steps.setText("50")
             self.M1Speed.setText("3200")
         self.M1Position -= self.m1steps
-        print(f"Moving pipette down by {-self.m1steps} steps at speed {self.m1speed}")
+        self.pipette.moveM1(self.m1steps,self.m1speed)
+        self.M1Position = self.pipette.m1Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+
+        #print(f"Moving pipette down by {-self.m1steps} steps at speed {self.m1speed}")
 
     def moveM2Down(self):
         if self.M2Steps.text().isdigit() and self.M2Speed.text().isdigit():
             self.m2steps = int(self.M2Steps.text())
             self.m2speed = int(self.M2Speed.text())
         else:
-            self.m2steps = 50
-            self.m2speed = 3200
-            self.M2Steps.setText("50")
-            self.M2Speed.setText("3200")
-        self.M2Position -= self.m2steps
-        print(f"Moving pipette down by {-self.m2steps} steps at speed {self.m2speed}")
+            self.m2steps = 100
+            self.m2speed = 1000
+            self.M2Steps.setText("100")
+            self.M2Speed.setText("1000")
+        self.pipette.moveM2(self.m2steps,self.m2speed)
+        self.M2Position = self.pipette.m2Position
+        self.positonlabel.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel2.setText(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
 
-    def moveM3Down(self):
-        if self.M3Steps.text().isdigit() and self.M3Speed.text().isdigit():
-            self.m3steps = int(self.M3Steps.text())
-            self.m3speed = int(self.M3Speed.text())
-        else:
-            self.m3steps = 50
-            self.m3speed = 3200
-            self.M3Steps.setText("50")
-            self.M3Speed.setText("3200")
-        self.M3Position -= self.m3steps
-        print(f"Moving pipette left by {-self.m3steps} steps at speed {self.m3speed}")
+        #print(f"Moving pipette left by {-self.m2steps} steps at speed {self.m2speed}")
 
     def saveSample(self):
-        print(f"Saving current position as Sample position {self.M1Position}, {self.M2Position}, {self.M3Position}")
-        self.SamplePosition = (self.M1Position, self.M2Position, self.M3Position)
+        #print(f"Saving current position as Sample position {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.M0Position = self.pipette.m0Position
+        self.M1Position = self.pipette.m1Position
+        self.M2Position = self.pipette.m2Position
+        self.SamplePosition = (self.M0Position, self.M1Position, self.M2Position)
+        self.samplePositonlabel.setText(f"Sample position: {self.SamplePosition}")
+        self.samplePositonlabel2.setText(f"Sample position: {self.SamplePosition}")
+
 
     def saveTube(self):
-        print(f"Saving current position as Tube position {self.M1Position}, {self.M2Position}, {self.M3Position}")
-        self.TubePosition = (self.M1Position, self.M2Position, self.M3Position)
+        #print(f"Saving current position as Tube position {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.M0Position = self.pipette.m0Position
+        self.M1Position = self.pipette.m1Position
+        self.M2Position = self.pipette.m2Position
+        self.TubePosition = (self.M0Position, self.M1Position, self.M2Position)
+        self.tubePositonlabel.setText(f"Tube position: {self.TubePosition}")
+        self.tubePositonlabel2.setText(f"Tube position: {self.TubePosition}")
+    def __delete__(self, instance):
+        self.pipette.stopMotors()
+        self.pipette.close()
+
 
 if __name__ == '__main__':
     app = QApplication([])
