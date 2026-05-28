@@ -1,6 +1,7 @@
 import sys
 import pyvisa
-import PyQt5 as qt
+from time import sleep
+
 from PyQt5 import QtWidgets
 import pipetteAPI
 import json
@@ -11,6 +12,7 @@ import numpy as np
 from PyQt5 import QtCore 
 from PyQt5.QtGui import QBrush, QColor
 import logging
+import asyncio
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,9 +63,7 @@ class PipetteGUI(QMainWindow):
 
 
         self.filename = ""
-        self.positionsSet = {"Initial": (0,0,0), "Sample": None, "Tube": None}
-        self.positionsSet["Sample"] = None
-        self.positionsSet["Tube"] = None
+        self.positionsSet = {"Initial": (0,0,0), "Sample": (0,0,0), "Tube": (0,0,0)}
         self.steps2volume = None
         self.initPosition()
         self.setWindowTitle('Pipette Control')
@@ -232,6 +232,7 @@ class PipetteGUI(QMainWindow):
         Actived = QBrush(QColor(255, 255, 255))
         for row in range(self.instrictionsTabel.rowCount()):
             self.setColortoRow(self.instrictionsTabel, row, CurrentColor)
+            sleep(0.1)
             name = self.instrictionsTabel.item(row,0).text()
             instruction_type = self.instrictionsTabel.item(row, 1).text()
             if instruction_type == "Move to position":
@@ -264,28 +265,30 @@ class PipetteGUI(QMainWindow):
             self.setColortoRow(self.instrictionsTabel, i, Actived)
 
     def addInstruction(self):
-
         instruction_type = self.instructionType.currentText()
+        position_name = "-"
+        volume = "-"
+        if instruction_type in ["Draw up", "Spit out"]:
+            if not self.volume.text().isdigit():
+                error_dialog = QtWidgets.QErrorMessage()
+                error_dialog.showMessage('Proszę podać liczbę w polu objętości/kroków')
+                if error_dialog.exec_():
+                    return
+            volume = self.volume.text()
+        if instruction_type in ["Move to position"]:
+            position_name = self.positionNameList.currentText()
+        
         position_name = self.positionNameList.currentText()
-        volume = self.volume.text()
         row_position = self.instrictionsTabel.rowCount()
         pipette_name = self.pipetteComboBoxForInstructionZ3.currentText()
         self.instrictionsTabel.insertRow(row_position)
         self.instrictionsTabel.setItem(row_position, 0, QTableWidgetItem(pipette_name))
         self.instrictionsTabel.setItem(row_position, 1, QTableWidgetItem(instruction_type))
-        self.instrictionsTabel.setItem(row_position, 2, QTableWidgetItem("-"))
-        self.instrictionsTabel.setItem(row_position, 3, QTableWidgetItem("-"))
+        self.instrictionsTabel.setItem(row_position, 2, QTableWidgetItem(position_name))
+        self.instrictionsTabel.setItem(row_position, 3, QTableWidgetItem(volume))
 
-        if instruction_type in ["Move to position"]:
-            self.instrictionsTabel.setItem(row_position, 2, QTableWidgetItem(position_name))
-        if instruction_type in ["Draw up", "Spit out"]:
-            if not volume.isdigit():
-                error_dialog = QtWidgets.QErrorMessage()
-                error_dialog.showMessage('Proszę podać liczbę w polu objętości/kroków')
-                if error_dialog.exec_():
-                    return
 
-            self.instrictionsTabel.setItem(row_position, 3, QTableWidgetItem(volume))
+
 
     def Z2Init(self):
         layout = QGridLayout()
