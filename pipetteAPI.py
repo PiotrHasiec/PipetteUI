@@ -1,17 +1,13 @@
+import logging
 from time import sleep
 
 import pyvisa
 class PipetteAPI:
-    def __init__(self, steps2volume, resource_name='?*::45905::?*',lib_path='C:\\visa32.dll', verbose=False):
-        self.testmode = 0
-        try:
-            rm = pyvisa.ResourceManager(lib_path)
-            list1 = rm.list_resources(resource_name)
-            self.inst = rm.open_resource(list1[0], delay=0.1)
-            self.write("s")
-        except:
-            self.testmode = 1
-            #print("Error of importing library")
+    def __init__(self, steps2volume, testmode,resource, verbose=False):
+        self.testmode = testmode
+        self.inst = resource
+        if self.testmode == 0:
+            self.write('s')
         self.steps2volume = steps2volume
         self.m0Position = 0
         self.m1Position = 0
@@ -38,7 +34,7 @@ class PipetteAPI:
     def wait_for_stop(self,nr):
        
         if self.testmode:
-            return 0
+            return 1
         while True:
             values = self.query(f'g{nr}')
             if values == '_':
@@ -89,6 +85,7 @@ class PipetteAPI:
         
     def moveM0(self, steps, speed = 200):
         if self.testmode:
+            self.m0Position = (self.m0Position + steps)*self.wait_for_stop('0')
             return
         self.write(f'm0 {steps} {speed}')
         self.m0Position = (self.m0Position + steps)*self.wait_for_stop('0')
@@ -96,6 +93,7 @@ class PipetteAPI:
 
     def moveM1(self, steps, speed = 3200):
         if self.testmode:
+            self.m1Position = (self.m1Position + steps)*self.wait_for_stop('1')
             return
         self.write(f'm1 {steps} {speed}')
         self.m1Position = (self.m1Position + steps)*self.wait_for_stop('1')
@@ -103,6 +101,7 @@ class PipetteAPI:
 
     def moveM2(self, steps, speed = 700):
         if self.testmode:
+            self.m2Position = (self.m2Position + steps)*self.wait_for_stop('2')
             return
         self.write(f'm2 {steps} {speed}')
         self.m2Position = (self.m2Position + steps)*self.wait_for_stop('2')
@@ -118,11 +117,19 @@ class PipetteAPI:
         self.moveM1(500000, 3200)
         self.stopMotors()
 
+    def resetposition(self):
+        if self.testmode:
+            return
+        self.write("s")
+
+        self.moveM0(500000, 300)
+        self.moveM2(500000, 1000)
+        self.stopMotors()
+
     def move2position(self, position):
         if self.testmode:
             return
-        self.moveM0(500000, 300)
-        self.moveM2(500000, 1000)
+
         self.moveM2(position[2])
         self.moveM0(position[0])
         
@@ -136,7 +143,7 @@ class PipetteAPI:
     def onlySplitOut(self,volume):
         if self.testmode:
             return
-        self.moveM1((volume)/self.steps2volume+100)
+        self.moveM1(int((volume)/self.steps2volume+100))
         self.moveM1(-50)
 
     def oneStepdrawUp(self,position, volume):
@@ -157,8 +164,10 @@ class PipetteAPI:
     def onlyDrawUp(self, volume):
         if self.testmode:
             return
-        self.moveM1(-(volume)/self.steps2volume-50)
-        self.moveM0(1000)
+        value = -(volume)/self.steps2volume
+        self.moveM1(int(value))
+        sleep(1.0)
+        self.moveM0(50000)
 
     def close(self):
         if self.testmode:

@@ -1,0 +1,8 @@
+{
+    "SamplePosition": [-10000, 0, -200],
+    "TubePosition": [-11000, 0, -700],
+    "m0speed": 200,
+    "m1speed": 3200,
+    "m2speed": 1000,
+    "steps2volume": 1
+}
