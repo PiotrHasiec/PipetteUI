@@ -1,0 +1,17 @@
+{"PositionsSet": {"Initial": [0, 0, 0], "Sample": [0, 0, 0], "Tube": [0, 0, 0], "S0": [-12000, 0, -500], "T0": [-11000, 0, -200], "S1": [-11000, 0, -900], "T1": [-12000, 0, -500], "T0Up": [-1000, 0, -200], "T1UP": [-2000, 0, -500], "P1AfterDepostion": [-11000, 0, -800]}, 
+"PipetteSettings": {
+    "pipette 0": {"m0speed": 70, "m1speed": 1000, "m2speed": 500, "steps2volume": 0.1}, 
+    "pipette 1": {"m0speed": 70, "m1speed": 1000, "m2speed": 500, "steps2volume": 0.1}}, 
+    "Instructions": [["pipette 0", "Reset position", "Sample", "-"], 
+    ["pipette 1", "Reset position", "Sample", "-"], 
+    ["pipette 0", "Move to position", "T0Up", "-"], 
+    ["pipette 1", "Move to position", "T1", "-"], 
+    ["pipette 1", "Move to position", "T1UP", "-"], 
+    ["pipette 1", "Move to position", "S1", "-"], 
+    ["pipette 1", "Move to position", "P1AfterDepostion", "-"], 
+    ["pipette 0", "Move to position", "T0", "-"], 
+    ["pipette 0", "Move to position", "T0Up", "-"], 
+    ["pipette 0", "Move to position", "S0", "-"], 
+    ["pipette 0", "Reset position", "S0", "-"], 
+    ["pipette 1", "Reset position", "P1AfterDepostion", "-"]]
+}

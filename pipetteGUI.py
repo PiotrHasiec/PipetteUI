@@ -10,7 +10,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 import numpy as np
 from PyQt5 import QtCore 
-from PyQt5.QtGui import QBrush, QColor
+from PyQt5.QtGui import QBrush, QColor, QIcon
 import logging
 import asyncio
 
@@ -67,7 +67,7 @@ class PipetteGUI(QMainWindow):
         self.steps2volume = None
         self.initPosition()
         self.setWindowTitle('Pipette Control')
-        self.setGeometry(100, 100, 400, 300)
+        self.setGeometry(100, 100, 800, 500)
         self.createMenu()
         self.createTabs()
         
@@ -81,17 +81,49 @@ class PipetteGUI(QMainWindow):
         self.FileMenu.addAction('Exit', self.close)
         self.FileMenu.addAction('Wybierz plik ustawień', self.settingchoose)
         self.FileMenu.addAction('Zapisz plik ustawień', self.settingsave)
+        self.FileMenu.addAction('Zapisz program', self.programsave)
+        self.FileMenu.addAction('Wczytaj program', self.programload)
+
+    def programsave(self):
+        fileName, selectedFilter = QFileDialog.getSaveFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
+        if fileName:
+            jsondict = dict()#zrobić zapis z wszystkich pipet
+            jsondict["PositionsSet"] = dict()
+            jsondict["PipetteSettings"] = dict()
+            for position_name, position in self.positionsSet.items():
+                jsondict["PositionsSet"][position_name] = position
+            for name,inst in self.pipette_dixt.items():
+                jsondict["PipetteSettings"][name] = dict()
+                jsondict["PipetteSettings"][name]["m0speed"] = inst.speedset['m0']
+                jsondict["PipetteSettings"][name]["m1speed"] = inst.speedset['m1']
+                jsondict["PipetteSettings"][name]["m2speed"] = inst.speedset['m2']
+                jsondict["PipetteSettings"][name]["steps2volume"] = inst.steps2volume
+            jsondict["Instructions"] = []
+            for row_index in range(self.instructionsTabel.rowCount()):
+                instruction = []
+                for col_index in range(self.instructionsTabel.columnCount()):
+                    if col_index < 4:
+                        if self.instructionsTabel.item(row_index, col_index) is not None:
+                            instruction.append(self.instructionsTabel.item(row_index, col_index).text())
+                jsondict["Instructions"].append(instruction)
+
+            with open(fileName, 'w') as file:
+                json.dump(jsondict,file)
 
     def settingsave(self):
         fileName, selectedFilter = QFileDialog.getSaveFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
         if fileName:
             jsondict = dict()#zrobić zapis z wszystkich pipet
-            jsondict["PositionsSet"] = self.positionsSet
-            jsondict["PipetteSettings"] = {"pipette 0": {}}
-            jsondict["PipetteSettings"]["pipette 0"]["m0speed"] = self.m0speed
-            jsondict["PipetteSettings"]["pipette 0"]["m1speed"] = self.m1speed
-            jsondict["PipetteSettings"]["pipette 0"]["m2speed"] = self.m2speed
-            jsondict["PipetteSettings"]["pipette 0"]["steps2volume"] = self.steps2volume
+            jsondict["PositionsSet"] = dict()
+            jsondict["PipetteSettings"] = dict()
+            for position_name, position in self.positionsSet.items():
+                jsondict["PositionsSet"][position_name] = position
+            for name,inst in self.pipette_dixt.items():
+                jsondict["PipetteSettings"][name] = dict()
+                jsondict["PipetteSettings"][name]["m0speed"] = inst.speedset['m0']
+                jsondict["PipetteSettings"][name]["m1speed"] = inst.speedset['m1']
+                jsondict["PipetteSettings"][name]["m2speed"] = inst.speedset['m2']
+                jsondict["PipetteSettings"][name]["steps2volume"] = inst.steps2volume
             with open(fileName, 'w') as file:
                 json.dump(jsondict,file)
             # file.write(jsondict)
@@ -102,20 +134,62 @@ class PipetteGUI(QMainWindow):
             self.settings = json.load(json_file)
             self.positionsSet = self.settings["PositionsSet"]
             for name in self.settings["PipetteSettings"]:#zrobić niezależne dla każdej pipetki
-                self.m0speed  = self.settings["m0speed"]
-                self.m1speed  = self.settings["m1speed"]
-                self.m2speed  = self.settings["m2speed"]
-                self.steps2volume = self.settings["steps2volume"]
-                self.pipette_dixt[name].steps2volume = self.steps2volume
-                self.steps2volumeForms.setText(str(self.steps2volume))
+                self.pipette_dixt[name].speedset['m0'] = self.settings["PipetteSettings"][name]["m0speed"]
+                self.pipette_dixt[name].speedset['m1'] = self.settings["PipetteSettings"][name]["m1speed"]
+                self.pipette_dixt[name].speedset['m2'] = self.settings["PipetteSettings"][name]["m2speed"]
+                self.pipette_dixt[name].steps2volume = self.settings["PipetteSettings"][name]["steps2volume"]
 
             self.steps2volumeLabel.setText(f"Current steps2volume {self.pipette_dixt[name].steps2volume} stepes/μL")
             self.samplePositonlabel.setText(f"Sample position: {self.positionsSet["Sample"]}")
             self.samplePositonlabel2.setText(f"Sample position: {self.positionsSet["Sample"]}")
             self.tubePositonlabel.setText(f"Tube position: {self.positionsSet["Tube"]}")
             self.tubePositonlabel2.setText(f"Tube position: {self.positionsSet["Tube"]}")
-            self.show()    
-       
+            self.positionNameList.clear()
+            for position_name in self.positionsSet.keys():
+                self.positionNameList.addItem(position_name)
+            self.show()   
+
+    def programload(self):
+        fileName, selectedFilter = QFileDialog.getOpenFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
+        if fileName:
+            json_file = open(fileName)
+            self.settings = json.load(json_file)
+            self.instructionsTabel.setRowCount(0)
+            for instruction in self.settings["Instructions"]:
+                row_position = self.instructionsTabel.rowCount()
+                self.instructionsTabel.insertRow(row_position)
+                for col_index, value in enumerate(instruction):
+                    self.instructionsTabel.setItem(row_position, col_index, QTableWidgetItem(value))
+
+                deleteButton = QtWidgets.QPushButton(QIcon("delete.svg"), "")
+                deleteButton.clicked.connect(self.deleteClicked)
+
+                moveUpButton = QtWidgets.QPushButton(QIcon("up.svg"), "")
+                moveUpButton.clicked.connect(self.moveUpClicked)
+
+                moveDownButton = QtWidgets.QPushButton(QIcon("down.svg"), "")
+                moveDownButton.clicked.connect(self.moveDownClicked)
+                self.instructionsTabel.setCellWidget(row_position, 4, deleteButton)
+                self.instructionsTabel.setCellWidget(row_position, 5, moveUpButton)
+                self.instructionsTabel.setCellWidget(row_position, 6, moveDownButton)
+
+
+            self.positionsSet = self.settings["PositionsSet"]
+            for name in self.settings["PipetteSettings"]:#zrobić niezależne dla każdej pipetki
+                self.pipette_dixt[name].speedset['m0'] = self.settings["PipetteSettings"][name]["m0speed"]
+                self.pipette_dixt[name].speedset['m1'] = self.settings["PipetteSettings"][name]["m1speed"]
+                self.pipette_dixt[name].speedset['m2'] = self.settings["PipetteSettings"][name]["m2speed"]
+                self.pipette_dixt[name].steps2volume = self.settings["PipetteSettings"][name]["steps2volume"]
+
+            self.steps2volumeLabel.setText(f"Current steps2volume {self.pipette_dixt[name].steps2volume} stepes/μL")
+            self.samplePositonlabel.setText(f"Sample position: {self.positionsSet["Sample"]}")
+            self.samplePositonlabel2.setText(f"Sample position: {self.positionsSet["Sample"]}")
+            self.tubePositonlabel.setText(f"Tube position: {self.positionsSet["Tube"]}")
+            self.tubePositonlabel2.setText(f"Tube position: {self.positionsSet["Tube"]}")
+            self.positionNameList.clear()
+            for position_name in self.positionsSet.keys():
+                self.positionNameList.addItem(position_name)
+
     def initPosition(self):
         self.M0Position = 0
         self.M1Position = 0
@@ -160,9 +234,24 @@ class PipetteGUI(QMainWindow):
 
     def Z3Init(self):
         layout = QGridLayout()
-        self.instrictionsTabel = QTableWidget()
-        self.instrictionsTabel.setColumnCount(4)
-        self.instrictionsTabel.setHorizontalHeaderLabels(["Pipeta","Instruction type", "Position name", "Volume/steps"])
+        self.instructionsTabel = QTableWidget()
+        self.instructionsTabel.setColumnCount(7)
+        self.instructionsTabel.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
+        self.instructionsTabel.setSizeAdjustPolicy(QTableWidget.SizeAdjustPolicy.AdjustToContents)
+        self.instructionsTabel.setHorizontalHeaderLabels(["Pipeta","Instruction type", "Position name", "Volume/steps", "Delete","Up", "Down"])
+        self.instructionsTabel.setColumnWidth(4,60)
+        self.instructionsTabel.setColumnWidth(5,60)
+        self.instructionsTabel.setColumnWidth(6,60)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.Fixed)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeMode.Fixed)
+        self.instructionsTabel.horizontalHeader().setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.Fixed)
+
+
+        self.instructionsTabel
         self.pipetteComboBoxForInstructionZ3 = QComboBox()
         for name,inst in self.pipette_dixt.items():
             self.pipetteComboBoxForInstructionZ3.addItem(name)
@@ -188,18 +277,19 @@ class PipetteGUI(QMainWindow):
         self.volume.setPlaceholderText("Objętość w μL")
         self.addInstructionButton = QPushButton("Dodaj instrukcję")
         self.runInstructionsButton = QPushButton("Uruchom zestaw instrukcji")
-
+        
         self.addInstructionButton.clicked.connect(self.addInstruction)
         self.runInstructionsButton.clicked.connect(self.runInstructions)
         self.insertToolBarLayout.addWidget(self.pipetteComboBoxForInstructionZ3)
         self.insertToolBarLayout.addWidget(self.instructionType)
         self.insertToolBarLayout.addWidget(self.positionNameList)
         self.insertToolBarLayout.addWidget(self.volume)
+        self.volume.setVisible(False)
         self.insertToolBarLayout.addWidget(self.addInstructionButton)
         self.insertToolBarLayout.addWidget(self.runInstructionsButton)
         self.insertToolBar.setLayout(self.insertToolBarLayout)
         layout.addWidget(self.insertToolBar,0,0)
-        layout.addWidget(self.instrictionsTabel,1,0)
+        layout.addWidget(self.instructionsTabel,1,0)
 
         return layout
     
@@ -223,46 +313,46 @@ class PipetteGUI(QMainWindow):
             self.volume.setVisible(False)
 
     def setColortoRow(self, table, rowIndex, color):
-        for j in range(table.columnCount()):
+        for j in range(table.columnCount()-3):
             table.item(rowIndex, j).setBackground(color)
 
     def runInstructions(self):
         Deactived = QBrush(QColor(155, 155, 155))
         CurrentColor = QBrush(QColor(200, 255, 200))
         Actived = QBrush(QColor(255, 255, 255))
-        for row in range(self.instrictionsTabel.rowCount()):
-            self.setColortoRow(self.instrictionsTabel, row, CurrentColor)
+        for row in range(self.instructionsTabel.rowCount()):
+            self.setColortoRow(self.instructionsTabel, row, CurrentColor)
             sleep(0.1)
-            name = self.instrictionsTabel.item(row,0).text()
-            instruction_type = self.instrictionsTabel.item(row, 1).text()
+            name = self.instructionsTabel.item(row,0).text()
+            instruction_type = self.instructionsTabel.item(row, 1).text()
             if instruction_type == "Move to position":
-                position_name = self.instrictionsTabel.item(row, 2).text()
+                position_name = self.instructionsTabel.item(row, 2).text()
                 self.pipette_dixt[name].move2position(self.positionsSet[position_name])
 
             elif instruction_type == "Draw up":
-                volume = self.instrictionsTabel.item(row, 3).text()
+                volume = self.instructionsTabel.item(row, 3).text()
                 self.pipette_dixt[name].onlyDrawUp(volume=int(volume))
             elif instruction_type == "Spit out":
-                volume = self.instrictionsTabel.item(row, 3).text()
+                volume = self.instructionsTabel.item(row, 3).text()
                 self.pipette_dixt[name].onlySplitOut(volume=int(volume))
             elif instruction_type == "Reset position":
                 self.pipette_dixt[name].resetposition()
             elif instruction_type == "Prepare draw up":
                 self.pipette_dixt[name].prepareDrawUp()
             elif instruction_type == "Move Motor M0":
-                volume = self.instrictionsTabel.item(row, 3).text()
+                volume = self.instructionsTabel.item(row, 3).text()
                 self.pipette_dixt[name].moveM0(steps=int(volume))
             elif instruction_type == "Move Motor M1":
-                volume = self.instrictionsTabel.item(row, 3).text()
+                volume = self.instructionsTabel.item(row, 3).text()
                 self.pipette_dixt[name].moveM1(steps=int(volume))
             elif instruction_type == "Move Motor M2":
-                volume = self.instrictionsTabel.item(row, 3).text()
+                volume = self.instructionsTabel.item(row, 3).text()
                 self.pipette_dixt[name].moveM2(steps=int(volume))
             self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
             self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-            self.setColortoRow(self.instrictionsTabel, row, Deactived)
-        for i in range(self.instrictionsTabel.rowCount()):
-            self.setColortoRow(self.instrictionsTabel, i, Actived)
+            self.setColortoRow(self.instructionsTabel, row, Deactived)
+        for i in range(self.instructionsTabel.rowCount()):
+            self.setColortoRow(self.instructionsTabel, i, Actived)
 
     def addInstruction(self):
         instruction_type = self.instructionType.currentText()
@@ -277,19 +367,80 @@ class PipetteGUI(QMainWindow):
             volume = self.volume.text()
         if instruction_type in ["Move to position"]:
             position_name = self.positionNameList.currentText()
-        
+        deleteButton = QtWidgets.QPushButton(QIcon("delete.svg"), "")
+        deleteButton.clicked.connect(self.deleteClicked)
+
+        moveUpButton = QtWidgets.QPushButton(QIcon("up.svg"), "")
+        moveUpButton.clicked.connect(self.moveUpClicked)
+
+        moveDownButton = QtWidgets.QPushButton(QIcon("down.svg"), "")
+        moveDownButton.clicked.connect(self.moveDownClicked)
+
         position_name = self.positionNameList.currentText()
-        row_position = self.instrictionsTabel.rowCount()
+        row_position = self.instructionsTabel.rowCount()
         pipette_name = self.pipetteComboBoxForInstructionZ3.currentText()
-        self.instrictionsTabel.insertRow(row_position)
-        self.instrictionsTabel.setItem(row_position, 0, QTableWidgetItem(pipette_name))
-        self.instrictionsTabel.setItem(row_position, 1, QTableWidgetItem(instruction_type))
-        self.instrictionsTabel.setItem(row_position, 2, QTableWidgetItem(position_name))
-        self.instrictionsTabel.setItem(row_position, 3, QTableWidgetItem(volume))
+        self.instructionsTabel.insertRow(row_position)
 
+        self.instructionsTabel.setItem(row_position, 0, QTableWidgetItem(pipette_name))
+        item = self.instructionsTabel.item(row_position, 0)
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
+        item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
+        self.instructionsTabel.setItem(row_position, 1, QTableWidgetItem(instruction_type,QtCore.Qt.AlignmentFlag.AlignCenter))
+        item = self.instructionsTabel.item(row_position, 1)
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
+        item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
+        self.instructionsTabel.setItem(row_position, 2, QTableWidgetItem(position_name,QtCore.Qt.AlignmentFlag.AlignCenter))
+        item = self.instructionsTabel.item(row_position, 2)
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
+        item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
+        self.instructionsTabel.setItem(row_position, 3, QTableWidgetItem(volume,QtCore.Qt.AlignmentFlag.AlignCenter))
+        item = self.instructionsTabel.item(row_position, 3)
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
+        item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+
+        self.instructionsTabel.setCellWidget(row_position, 4, deleteButton)
+        self.instructionsTabel.setCellWidget(row_position, 5, moveUpButton)
+        self.instructionsTabel.setCellWidget(row_position, 6, moveDownButton)
+
+    def deleteClicked(self):
+        button = self.sender()
+        if button:
+            row = self.instructionsTabel.indexAt(button.pos()).row()
+            self.instructionsTabel.removeRow(row)
+
+    def moveUpClicked(self):
+        button = self.sender()
+        if button:
+            row = self.instructionsTabel.indexAt(button.pos()).row()
+            if row > 0:
+                self.instructionsTabel.insertRow(row - 1)
+                for col in range(self.instructionsTabel.columnCount()):
+                    item = self.instructionsTabel.takeItem(row + 1, col)
+                    if item:
+                        self.instructionsTabel.setItem(row - 1, col, item)
+                    else:
+                        widget = self.instructionsTabel.cellWidget(row + 1, col)
+                        if widget:
+                            self.instructionsTabel.setCellWidget(row - 1, col, widget)
+                self.instructionsTabel.removeRow(row + 1)
+    def moveDownClicked(self):
+        button = self.sender()
+        if button:
+            row = self.instructionsTabel.indexAt(button.pos()).row()
+            if row < self.instructionsTabel.rowCount() - 1:
+                self.instructionsTabel.insertRow(row + 2)
+                for col in range(self.instructionsTabel.columnCount()):
+                    item = self.instructionsTabel.takeItem(row, col)
+                    if item:
+                        self.instructionsTabel.setItem(row + 2, col, item)
+                    else:
+                        widget = self.instructionsTabel.cellWidget(row, col)
+                        if widget:
+                            self.instructionsTabel.setCellWidget(row + 2, col, widget)
+                self.instructionsTabel.removeRow(row)
     def Z2Init(self):
         layout = QGridLayout()
         self.drawUpunits = QComboBox()
@@ -561,9 +712,9 @@ class PipetteGUI(QMainWindow):
             self.m1speed = int(self.M1Speed.text())
         else:
             self.m1steps = 50
-            self.m1speed = 3200
+            self.m1speed = 2000
             self.M1Steps.setText("50")
-            self.M1Speed.setText("3200")
+            self.M1Speed.setText("2000")
         self.pipette_dixt[name].moveM1(-self.m1steps,self.m1speed)
         self.M1Position = self.pipette_dixt[name].m1Position
         self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
@@ -578,9 +729,9 @@ class PipetteGUI(QMainWindow):
             self.m2speed = int(self.M2Speed.text())
         else:
             self.m2steps = 100
-            self.m2speed = 1000
+            self.m2speed = 600
             self.M2Steps.setText("100")
-            self.M2Speed.setText("1000")
+            self.M2Speed.setText("600")
         self.pipette_dixt[name].moveM2(-self.m2steps,self.m2speed)
         self.M2Position = self.pipette_dixt[name].m2Position
         self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
@@ -597,7 +748,7 @@ class PipetteGUI(QMainWindow):
             self.m0steps = 2000
             self.m0speed = 200
             self.M0Steps.setText("2000")
-            self.M0Speed.setText("700")
+            self.M0Speed.setText("200")
         self.pipette_dixt[name].moveM0(-self.m0steps,self.m0speed)
         self.M0Position = self.pipette_dixt[name].m0Position
         self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
@@ -612,9 +763,9 @@ class PipetteGUI(QMainWindow):
             self.m1speed = int(self.M1Speed.text())
         else:
             self.m1steps = 50
-            self.m1speed = 3200
+            self.m1speed = 2000
             self.M1Steps.setText("50")
-            self.M1Speed.setText("3200")
+            self.M1Speed.setText("2000")
         self.M1Position -= self.m1steps
         self.pipette_dixt[name].moveM1(self.m1steps,self.m1speed)
         self.M1Position = self.pipette_dixt[name].m1Position
@@ -632,9 +783,9 @@ class PipetteGUI(QMainWindow):
             self.m2speed = int(self.M2Speed.text())
         else:
             self.m2steps = 100
-            self.m2speed = 1000
+            self.m2speed = 600
             self.M2Steps.setText("100")
-            self.M2Speed.setText("1000")
+            self.M2Speed.setText("600")
         self.pipette_dixt[name].moveM2(self.m2steps,self.m2speed)
         self.M2Position = self.pipette_dixt[name].m2Position
         self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")

@@ -1,8 +1,1 @@
-{
-    "m0speed": 3200,
-    "m1speed": 3200,
-    "m2speed": 3200,
-    "steps2volume": 100,
-    "SamplePosition": [0, 0, 0],
-    "TubePosition": [10, 10, 10]
-}
+{"PositionsSet": {"Initial": [0, 0, 0], "Sample": [0, 0, 0], "Tube": [0, 0, 0], "S0": [-13000, 0, -500]}, "PipetteSettings": {"pipette 0": {"m0speed": 700, "m1speed": 3200, "m2speed": 1000, "steps2volume": 0.1}, "pipette 1": {"m0speed": 700, "m1speed": 3200, "m2speed": 1000, "steps2volume": 0.1}}}
