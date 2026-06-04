@@ -2,7 +2,7 @@ import sys
 import pyvisa
 import serial
 from PyQt5 import QtWidgets, QtCore, QtTest
-import pipetteAPI
+from pipetteAPI import PipetteAPI, Instruction
 import json
 from PyQt5.QtWidgets import QApplication, QComboBox, QFileDialog,  QGridLayout, QLabel, QLineEdit,  QMainWindow,  QTabWidget, QWidget,  QPushButton, QTableWidget, QTableWidgetItem, QGroupBox, QVBoxLayout
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg 
@@ -23,13 +23,7 @@ logging.basicConfig(
 )
 logging.info("Application started")
 
-class instruction:
-    def __init__(self, pipette_name, instruction_type, position_name = None, value = None,speedset = [70,2000,500]):
-        self.pipette_name = pipette_name
-        self.instruction_type = instruction_type
-        self.position_name = position_name
-        self.value = value
-        self.speedset = speedset
+
 
 
 class PipetteGUI(QMainWindow):
@@ -37,27 +31,26 @@ class PipetteGUI(QMainWindow):
         super(QMainWindow, self).__init__(*args, **kwargs)
         self.pipette_dixt = {}
         self.timer = time.time()
-        self.spincoater = None
-        try:
+        self.spincoater = {}
+
+        try: #Opening connections to pipettes, if error occurs, test mode is activated for all pipettes
             rm = pyvisa.ResourceManager('C:\\visa32.dll')
             list_of_pippetes = rm.list_resources('?*::45905::?*')
             for i,inst in enumerate(list_of_pippetes):
                 inst = rm.open_resource(inst)
-                self.pipette_dixt[f'pipette {i}'] = pipetteAPI.PipetteAPI(steps2volume=0.1, resource= inst, testmode=0)
+                self.pipette_dixt[f'pipette {i}'] = PipetteAPI(steps2volume=0.1, resource= inst, testmode=0)
         except:
             for i in range(3):
-                self.pipette_dixt[f"pipette test {i}"] = pipetteAPI.PipetteAPI(steps2volume=0.1, resource= None,testmode=1)
+                self.pipette_dixt[f"pipette test {i}"] = PipetteAPI(steps2volume=0.1, resource= None,testmode=1)
             logging.info(f"Error of importing library or connecting to the device. Running in test mode.")
     
-        try:
-            self.spincoater = serial.Serial('COM5', 19200, timeout=1)
+        try: #Opening connection to the spincoater, if error occurs, spincoater functions will be unavailable
+            self.spincoater = {"spincoater 0": serial.Serial('COM5', 19200, timeout=1)}
         except:
+            self.spincoater = {"spincoater 0": None}
             logging.info(f"Error connecting to the spincoater. Spincoater functions will be unavailable.")
 
-
-        self.filename = ""
         self.positionsSet = {"Initial": (0,0,0), "Sample": (0,0,0), "Tube": (0,0,0)}
-        self.initPosition()
         self.setWindowTitle('Pipette Control')
         self.setGeometry(100, 100, 800, 500)
         self.createMenu()
@@ -76,22 +69,25 @@ class PipetteGUI(QMainWindow):
         self.FileMenu.addAction('Zapisz program', self.programsave)
         self.FileMenu.addAction('Wczytaj program', self.programload)
 
-    def programsave(self):
+    def programsave(self):#Saving the set of instructions in the table to a json file, so it can be loaded later
         fileName, selectedFilter = QFileDialog.getSaveFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
         if fileName:
-            jsondict = dict()#zrobić zapis z wszystkich pipet
+            jsondict = dict()
             jsondict["PositionsSet"] = dict()
             jsondict["PipetteSettings"] = dict()
+
             for position_name, position in self.positionsSet.items():
                 jsondict["PositionsSet"][position_name] = position
-            for name,inst in self.pipette_dixt.items():
+
+            for name,inst in self.pipette_dixt.items():#Saving settings for each pipette, currently only speedset and steps2volume, but can be easily expanded in the future
                 jsondict["PipetteSettings"][name] = dict()
                 jsondict["PipetteSettings"][name]["m0speed"] = inst.speedset['m0']
                 jsondict["PipetteSettings"][name]["m1speed"] = inst.speedset['m1']
                 jsondict["PipetteSettings"][name]["m2speed"] = inst.speedset['m2']
                 jsondict["PipetteSettings"][name]["steps2volume"] = inst.steps2volume
             jsondict["Instructions"] = []
-            for row_index in range(self.instructionsTabel.rowCount()):
+
+            for row_index in range(self.instructionsTabel.rowCount()):#Saving instructions from the table, currently only pipette name, instruction type, position name and value, but can be easily expanded in the future
                 instruction = []
                 for col_index in range(self.instructionsTabel.columnCount()):
                     if col_index < 4:
@@ -102,15 +98,16 @@ class PipetteGUI(QMainWindow):
             with open(fileName, 'w') as file:
                 json.dump(jsondict,file)
 
-    def settingsave(self):
+    def settingsave(self):#Saving settings without instructions, for easier use when not using the program module
         fileName, selectedFilter = QFileDialog.getSaveFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
         if fileName:
-            jsondict = dict()#zrobić zapis z wszystkich pipet
+            jsondict = dict()
             jsondict["PositionsSet"] = dict()
             jsondict["PipetteSettings"] = dict()
             for position_name, position in self.positionsSet.items():
                 jsondict["PositionsSet"][position_name] = position
-            for name,inst in self.pipette_dixt.items():
+                
+            for name,inst in self.pipette_dixt.items(): #Saving settings for each pipette, currently only speedset and steps2volume, but can be easily expanded in the future
                 jsondict["PipetteSettings"][name] = dict()
                 jsondict["PipetteSettings"][name]["m0speed"] = inst.speedset['m0']
                 jsondict["PipetteSettings"][name]["m1speed"] = inst.speedset['m1']
@@ -118,75 +115,78 @@ class PipetteGUI(QMainWindow):
                 jsondict["PipetteSettings"][name]["steps2volume"] = inst.steps2volume
             with open(fileName, 'w') as file:
                 json.dump(jsondict,file)
-            # file.write(jsondict)
-    def settingchoose(self):
+
+    def settingchoose(self):#Loading settings from file, including positions and pipette settings, but not instructions, for easier use when not using the program module
       fileName, selectedFilter = QFileDialog.getOpenFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
       if fileName:
             json_file = open(fileName)
             self.settings = json.load(json_file)
             self.positionsSet = self.settings["PositionsSet"]
-            for name in self.settings["PipetteSettings"]:#zrobić niezależne dla każdej pipetki
+            for name in self.settings["PipetteSettings"]:#Loading settings for each pipette, currently only speedset and steps2volume, but can be easily expanded in the future
                 self.pipette_dixt[name].speedset['m0'] = self.settings["PipetteSettings"][name]["m0speed"]
                 self.pipette_dixt[name].speedset['m1'] = self.settings["PipetteSettings"][name]["m1speed"]
                 self.pipette_dixt[name].speedset['m2'] = self.settings["PipetteSettings"][name]["m2speed"]
                 self.pipette_dixt[name].steps2volume = self.settings["PipetteSettings"][name]["steps2volume"]
 
+            #Setting labels and position name list according to loaded settings
             self.steps2volumeLabel.setText(f"Current steps2volume {self.pipette_dixt[name].steps2volume} stepes/μL")
             self.samplePositonlabel.setText(f"Sample position: {self.positionsSet["Sample"]}")
             self.samplePositonlabel2.setText(f"Sample position: {self.positionsSet["Sample"]}")
             self.tubePositonlabel.setText(f"Tube position: {self.positionsSet["Tube"]}")
             self.tubePositonlabel2.setText(f"Tube position: {self.positionsSet["Tube"]}")
             self.positionNameList.clear()
+
+            #Setting position name list according to loaded settings
             for position_name in self.positionsSet.keys():
                 self.positionNameList.addItem(position_name)
-            self.show()   
 
-    def programload(self):
+    def programload(self):#Loading settings and instructions from file, for easier use of previously created programs
         fileName, selectedFilter = QFileDialog.getOpenFileName(self, "Wybierz plik ustawień",  "settings", "JSON Files (*.json);;All Files (*);;XML Files (*.xml)")
         if fileName:
             json_file = open(fileName)
             self.settings = json.load(json_file)
             self.instructionsTabel.setRowCount(0)
-            for instruction in self.settings["Instructions"]:
+
+            for instruction in self.settings["Instructions"]:#Loading instructions from file, currently only pipette name, instruction type, position name and value, but can be easily expanded in the future
                 row_position = self.instructionsTabel.rowCount()
                 self.instructionsTabel.insertRow(row_position)
-                for col_index, value in enumerate(instruction):
+                for col_index, value in enumerate(instruction):#Setting values for pipette name, instruction type, position name and value
                     self.instructionsTabel.setItem(row_position, col_index, QTableWidgetItem(value))
 
+                #Adding buttons to each instruction row
                 deleteButton = QtWidgets.QPushButton(QIcon("delete.svg"), "")
-                deleteButton.clicked.connect(self.deleteClicked)
-
                 moveUpButton = QtWidgets.QPushButton(QIcon("up.svg"), "")
-                moveUpButton.clicked.connect(self.moveUpClicked)
-
                 moveDownButton = QtWidgets.QPushButton(QIcon("down.svg"), "")
+
+                deleteButton.clicked.connect(self.deleteClicked)
+                moveUpButton.clicked.connect(self.moveUpClicked)
                 moveDownButton.clicked.connect(self.moveDownClicked)
+
                 self.instructionsTabel.setCellWidget(row_position, 4, deleteButton)
                 self.instructionsTabel.setCellWidget(row_position, 5, moveUpButton)
                 self.instructionsTabel.setCellWidget(row_position, 6, moveDownButton)
 
 
             self.positionsSet = self.settings["PositionsSet"]
-            for name in self.settings["PipetteSettings"]:#zrobić niezależne dla każdej pipetki
+            for name in self.settings["PipetteSettings"]:#Loading settings for each pipette, currently only speedset and steps2volume, but can be easily expanded in the future
                 self.pipette_dixt[name].speedset['m0'] = self.settings["PipetteSettings"][name]["m0speed"]
                 self.pipette_dixt[name].speedset['m1'] = self.settings["PipetteSettings"][name]["m1speed"]
                 self.pipette_dixt[name].speedset['m2'] = self.settings["PipetteSettings"][name]["m2speed"]
                 self.pipette_dixt[name].steps2volume = self.settings["PipetteSettings"][name]["steps2volume"]
 
+            #Setting labels and position name list according to loaded settings
             self.steps2volumeLabel.setText(f"Current steps2volume {self.pipette_dixt[name].steps2volume} stepes/μL")
             self.samplePositonlabel.setText(f"Sample position: {self.positionsSet["Sample"]}")
             self.samplePositonlabel2.setText(f"Sample position: {self.positionsSet["Sample"]}")
             self.tubePositonlabel.setText(f"Tube position: {self.positionsSet["Tube"]}")
             self.tubePositonlabel2.setText(f"Tube position: {self.positionsSet["Tube"]}")
+            
+            #Setting position name list according to loaded settings
             self.positionNameList.clear()
             for position_name in self.positionsSet.keys():
                 self.positionNameList.addItem(position_name)
 
-    def initPosition(self):
-        self.M0Position = 0
-        self.M1Position = 0
-        self.M2Position = 0
-        #print("Initializing pipette position")
+       
     
     # Funkcja dodająca wenętrzeny widżet do okna
     def createTabs(self):
@@ -204,7 +204,7 @@ class PipetteGUI(QMainWindow):
         self.tab_1.setLayout(self.Z1Init())
 
         # Zakładka 2
-        self.tabs.addTab(self.tab_2, "Ręczna obsługa pipety")
+        self.tabs.addTab(self.tab_2, "Standardowa obsługa pojedynczej pipety")
         self.tab_2.setLayout(self.Z2Init())
 
         # Zakładka 3
@@ -226,11 +226,15 @@ class PipetteGUI(QMainWindow):
 
     def Z3Init(self):
         layout = QGridLayout()
+        self.insertToolBarLayout = QVBoxLayout()   
+        self.insertToolBar = QGroupBox("Dodaj instrukcję")
+
+        #Tabel with instructions
         self.instructionsTabel = QTableWidget()
         self.instructionsTabel.setColumnCount(7)
         self.instructionsTabel.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
         self.instructionsTabel.setSizeAdjustPolicy(QTableWidget.SizeAdjustPolicy.AdjustToContents)
-        self.instructionsTabel.setHorizontalHeaderLabels(["Pipeta","Instruction type", "Position name", "Volume/steps", "Delete","Up", "Down"])
+        self.instructionsTabel.setHorizontalHeaderLabels(["Pipeta","Instruction type", "Position name", "Value", "Delete","Up", "Down"])
         self.instructionsTabel.setColumnWidth(4,60)
         self.instructionsTabel.setColumnWidth(5,60)
         self.instructionsTabel.setColumnWidth(6,60)
@@ -242,46 +246,36 @@ class PipetteGUI(QMainWindow):
         self.instructionsTabel.horizontalHeader().setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeMode.Fixed)
         self.instructionsTabel.horizontalHeader().setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.Fixed)
 
-
-        self.instructionsTabel
-        self.pipetteComboBoxForInstructionZ3 = QComboBox()
-        for name,inst in self.pipette_dixt.items():
-            self.pipetteComboBoxForInstructionZ3.addItem(name)
-            
-        self.insertToolBar = QGroupBox("Dodaj instrukcję")
-    
-        self.insertToolBarLayout = QVBoxLayout()    
+        #Combobox to choose instruction type
         self.instructionType = QComboBox()
-        self.instructionType.addItem("Move to position")
-        self.instructionType.addItem("Prepare draw up")
-        self.instructionType.addItem("Draw up")
-        self.instructionType.addItem("Spit out")
-        self.instructionType.addItem("Reset position")
-        self.instructionType.addItem("Move Motor M0")
-        self.instructionType.addItem("Move Motor M1")
-        self.instructionType.addItem("Move Motor M2")
-        self.instructionType.addItem("Start Timer")
-        self.instructionType.addItem("Reset timer and wait")
-        self.instructionType.addItem("Wait")
-        self.instructionType.addItem("Run spincoater")
-        self.instructionType.addItem("Prepare spincoater")
+        instruction_types = ["Move to position", "Prepare draw up", "Draw up", "Spit out", "Reset position", "Move Motor M0", "Move Motor M1", "Move Motor M2", "Start Timer", "Reset timer and wait", "Wait"]
+        if self.spincoater["spincoater 0"] is not None:
+            instruction_types += ["Run spincoater", "Prepare spincoater"]
+        self.instructionType.addItems(instruction_types)
         self.instructionType.currentTextChanged.connect(self.instructionTypeChanged)
 
+        #Combobox to choose pipette for instruction
+        self.pipetteComboBoxForInstructionZ3 = QComboBox()
+        self.pipetteComboBoxForInstructionZ3.addItems(self.pipette_dixt.keys())
+            
         self.positionNameList = QComboBox()
         self.positionNameList.addItem("Sample")
         self.positionNameList.addItem("Tube")
-        self.volume = QLineEdit()
-        self.volume.setPlaceholderText("Objętość w μL")
+        self.value = QLineEdit()
+        self.value.setPlaceholderText("Wartość (objętość w μL lub kroki, zależnie od instrukcji)")
+
+        #Buttons to add instruction and run instructions
         self.addInstructionButton = QPushButton("Dodaj instrukcję")
         self.runInstructionsButton = QPushButton("Uruchom zestaw instrukcji")
-        
         self.addInstructionButton.clicked.connect(self.addInstruction)
         self.runInstructionsButton.clicked.connect(self.runInstructions)
+
+        #Adding widgets to layout
         self.insertToolBarLayout.addWidget(self.instructionType)
         self.insertToolBarLayout.addWidget(self.pipetteComboBoxForInstructionZ3)
         self.insertToolBarLayout.addWidget(self.positionNameList)
-        self.insertToolBarLayout.addWidget(self.volume)
-        self.volume.setVisible(False)
+        self.insertToolBarLayout.addWidget(self.value)
+        self.value.setVisible(False)
         self.insertToolBarLayout.addWidget(self.addInstructionButton)
         self.insertToolBarLayout.addWidget(self.runInstructionsButton)
         self.insertToolBar.setLayout(self.insertToolBarLayout)
@@ -291,46 +285,55 @@ class PipetteGUI(QMainWindow):
         return layout
     
     def instructionTypeChanged(self):
+        #Changing visible widgets in instruction adding toolbar depending on chosen instruction type, to make it more clear which values should be given for each instruction type
         instruction_type = self.instructionType.currentText()
         if instruction_type == "Move to position":
+            self.pipetteComboBoxForInstructionZ3.setVisible(True)
             self.positionNameList.setVisible(True)
-            self.volume.setVisible(False)
+            self.value.setVisible(False)
         elif instruction_type in ["Draw up", "Spit out"]:
+            self.value.setPlaceholderText("Objętość w μL")
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(True)
+            self.value.setVisible(True)
         elif instruction_type == "Reset position":
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(False)
+            self.value.setVisible(False)
         elif instruction_type in ["Move Motor M0", "Move Motor M1", "Move Motor M2"]:
+            self.value.setPlaceholderText("Liczba kroków do przesunięcia")
+            self.pipetteComboBoxForInstructionZ3.setVisible(True)
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(True)
-            self.volume.setPlaceholderText("Liczba kroków do przesunięcia")
+            self.value.setVisible(True)
+            self.value.setPlaceholderText("Liczba kroków do przesunięcia")
         elif instruction_type == "Prepare draw up":
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(False)
+            self.value.setVisible(False)
         elif instruction_type == "Start Timer":
             self.pipetteComboBoxForInstructionZ3.setVisible(False)
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(False)
-            self.volume.setPlaceholderText("Czas w sekundach")
+            self.value.setVisible(False)
         elif instruction_type == "Reset timer and wait":
             self.pipetteComboBoxForInstructionZ3.setVisible(False)
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(True)
-            self.volume.setPlaceholderText("Czas w sekundach")
+            self.value.setVisible(True)
+            self.value.setPlaceholderText("Czas w sekundach")
         elif instruction_type == "Wait":
             self.pipetteComboBoxForInstructionZ3.setVisible(False)
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(True)
-            self.volume.setPlaceholderText("Czas w sekundach")
+            self.value.setVisible(True)
+            self.value.setPlaceholderText("Czas w sekundach")
         elif instruction_type == "Run spincoater" or instruction_type == "Prepare spincoater":
             self.pipetteComboBoxForInstructionZ3.setVisible(False)
             self.positionNameList.setVisible(False)
-            self.volume.setVisible(False)
+            self.value.setVisible(False)
+
+    def updatePositionLabels(self, selected_pipette):
+        self.positonlabel.setText(f"Current position: {self.pipette_dixt[selected_pipette].getPosition()}")
+        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[selected_pipette].getPosition()}")
 
     def setColortoRow(self, table, rowIndex, color):
         for j in range(table.columnCount()-3):
             table.item(rowIndex, j).setBackground(color)
+        self.repaint()
 
     @pyqtSlot()
     def runInstructions(self):
@@ -341,82 +344,95 @@ class PipetteGUI(QMainWindow):
         for row in range(self.instructionsTabel.rowCount()):
             self.setColortoRow(self.instructionsTabel, row, CurrentColor)
             self.instructionsTabel.scrollToItem(self.instructionsTabel.item(row, 0), QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter)
-            self.repaint()
-            name = self.instructionsTabel.item(row,0).text()
+            selected_pipette = self.instructionsTabel.item(row,0).text()
+            if selected_pipette not in self.pipette_dixt.keys():
+                logging.warning(f"Unknown pipette name: {selected_pipette}")
+                error_dialog = QtWidgets.QErrorMessage()
+                error_dialog.showMessage(f'Nieznana nazwa pipety: {selected_pipette}')
+                if error_dialog.exec_():
+                    return
             instruction_type = self.instructionsTabel.item(row, 1).text()
-            if instruction_type == "Move to position":
-                position_name = self.instructionsTabel.item(row, 2).text()
-                self.pipette_dixt[name].move2position(self.positionsSet[position_name])
+            value = self.instructionsTabel.item(row, 3).text()
+            if value == "-":
+                value = None
+            else:
+                try:
+                    value = float(value)
+                except ValueError:
+                    logging.warning(f"Invalid value for instruction: {value}")
+                    error_dialog = QtWidgets.QErrorMessage()
+                    error_dialog.showMessage(f'Nieprawidłowa wartość dla instrukcji: {value}')
+                    if error_dialog.exec_():
+                        return
+            position_name = self.instructionsTabel.item(row, 2).text()
+            if position_name != "-" and position_name not in self.positionsSet.keys():
+                logging.warning(f"Unknown position name: {position_name}")
+                error_dialog = QtWidgets.QErrorMessage()
+                error_dialog.showMessage(f'Nieznana nazwa pozycji: {position_name}')
+                if error_dialog.exec_():
+                    return
+            
+            #Creating instruction object based on instruction type, to make it easier to pass all necessary values to pipetteAPI functions and to easily expand instruction set in the future. Depending on instruction type, different values are given to instruction object, for example for movement instructions position is given, for draw up and spit out instructions value in μL is given, and for timer instructions time in seconds is given
+            
+            instruction = Instruction(pipette_name=selected_pipette, instruction_type=instruction_type, position=self.positionsSet.get(position_name), position_name=position_name, value=value, speedset=self.pipette_dixt[selected_pipette].speedset)
+            
+            #Execute instruction based on its type
+            if not instruction_type in ["Start Timer", "Reset timer and wait", "Wait", "Run spincoater", "Prepare spincoater"]: 
+                self.pipette_dixt[selected_pipette].runInstruction(instruction)
+            
+            #For timer and spincoater instructions, execute them directly here, as they are not related to specific pipette and do not use pipetteAPI functions
             elif instruction_type == "Run spincoater":
-                self.spincoater.write(b'go=4 \n')
+                    self.spincoater["spincoater 0"].write(b'go=4 \n')
             elif instruction_type == "Prepare spincoater":
                 QtTest.QTest.qWait(1000)
-                self.spincoater.write(b'va=1 \n')
+                self.spincoater["spincoater 0"].write(b'va=1 \n')
                 QtTest.QTest.qWait(1000)
-                self.spincoater.write(b'em \n')
+                self.spincoater["spincoater 0"].write(b'em \n')
                 QtTest.QTest.qWait(1000)
-                self.spincoater.write(b'rm \n')
+                self.spincoater["spincoater 0"].write(b'rm \n')
                 QtTest.QTest.qWait(1000)
-                self.spincoater.write(b'pg=0 \n')
+                self.spincoater["spincoater 0"].write(b'pg=0 \n')
+                QtTest.QTest.qWait(1000)
+                self.spincoater["spincoater 0"].write(b'up \n')
 
-                QtTest.QTest.qWait(1000)
-                self.spincoater.write(b'up \n')
-
-            elif instruction_type == "Draw up":
-                volume = self.instructionsTabel.item(row, 3).text()
-                self.pipette_dixt[name].onlyDrawUp(volume=int(volume))
-            elif instruction_type == "Spit out":
-                volume = self.instructionsTabel.item(row, 3).text()
-                self.pipette_dixt[name].onlySplitOut(volume=int(volume))
-            elif instruction_type == "Reset position":
-                self.pipette_dixt[name].resetposition()
-            elif instruction_type == "Prepare draw up":
-                self.pipette_dixt[name].prepareDrawUp()
-            elif instruction_type == "Move Motor M0":
-                volume = self.instructionsTabel.item(row, 3).text()
-                self.pipette_dixt[name].moveM0(steps=int(volume))
-            elif instruction_type == "Move Motor M1":
-                volume = self.instructionsTabel.item(row, 3).text()
-                self.pipette_dixt[name].moveM1(steps=int(volume))
-            elif instruction_type == "Move Motor M2":
-                volume = self.instructionsTabel.item(row, 3).text()
-                self.pipette_dixt[name].moveM2(steps=int(volume))
             elif instruction_type == "Start Timer":
                 self.timer = time.time()
             elif instruction_type == "Reset timer and wait":
-                volume = self.instructionsTabel.item(row, 3).text()
                 self.timer = time.time()
-                QtCore.QTimer.singleShot( int(int(volume)-time.time()+self.timer)*1000, lambda: self.setEnabled(True))
-                self.setEnabled(False)
-                while time.time() - self.timer < int(volume):
+                while time.time() - self.timer < int(value):
                     QtTest.QTest.qWait(100)
 
             elif instruction_type == "Wait":
-                volume = self.instructionsTabel.item(row, 3).text()
-                QtCore.QTimer.singleShot( int(int(volume)-time.time()+self.timer)*1000, lambda: self.setEnabled(True))
-                self.setEnabled(False)
-                while time.time() - self.timer < int(volume):
+                while time.time() - self.timer < int(value):
                     QtTest.QTest.qWait(100)
+            else:
+                logging.warning(f"Unknown instruction type: {instruction_type}")
+                error_dialog = QtWidgets.QErrorMessage()
+                error_dialog.showMessage(f'Nieznany typ instrukcji: {instruction_type}')
+                if error_dialog.exec_():
+                    return
 
-            self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-            self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
+            #After executing instruction, change its color to deactived color and update position labels if instruction was related to pipette movement
             self.setColortoRow(self.instructionsTabel, row, Deactived)
-            self.repaint()
-            self.setEnabled(True)
+            self.updatePositionLabels(selected_pipette)
+
+        #After finishing all instructions, set enabled to True again and change all instructions color back to actived color
         for i in range(self.instructionsTabel.rowCount()):
             self.setColortoRow(self.instructionsTabel, i, Actived)
+        self.setEnabled(True)
+        
 
     def addInstruction(self):
         instruction_type = self.instructionType.currentText()
         position_name = "-"
-        volume = "-"
+        value = "-"
         if instruction_type in ["Draw up", "Spit out", "Move Motor M0", "Move Motor M1", "Move Motor M2", "Reset timer and wait", "Wait"]:
-            if not self.volume.text().isdigit():
+            if not self.value.text().isdigit():
                 error_dialog = QtWidgets.QErrorMessage()
                 error_dialog.showMessage('Proszę podać liczbę w polu objętości/kroków')
                 if error_dialog.exec_():
                     return
-            volume = self.volume.text()
+            value = self.value.text()
         if instruction_type in ["Move to position"]:
             position_name = self.positionNameList.currentText()
         deleteButton = QtWidgets.QPushButton(QIcon("delete.svg"), "")
@@ -447,7 +463,7 @@ class PipetteGUI(QMainWindow):
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
         item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
-        self.instructionsTabel.setItem(row_position, 3, QTableWidgetItem(volume,QtCore.Qt.AlignmentFlag.AlignCenter))
+        self.instructionsTabel.setItem(row_position, 3, QTableWidgetItem(value,QtCore.Qt.AlignmentFlag.AlignCenter))
         item = self.instructionsTabel.item(row_position, 3)
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
         item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -462,6 +478,7 @@ class PipetteGUI(QMainWindow):
             row = self.instructionsTabel.indexAt(button.pos()).row()
             self.instructionsTabel.removeRow(row)
 
+    #Function to move instruction up in the table, by taking its values and widgets, inserting new row above, setting taken values and widgets to the new row and removing the old row. Similar function is used for moving instruction down, but new row is inserted below and old row is removed after that
     def moveUpClicked(self):
         button = self.sender()
         if button:
@@ -477,6 +494,8 @@ class PipetteGUI(QMainWindow):
                         if widget:
                             self.instructionsTabel.setCellWidget(row - 1, col, widget)
                 self.instructionsTabel.removeRow(row + 1)
+
+    #Function to move instruction down in the table, by taking its values and widgets, inserting new row below, setting taken values and widgets to the new row and removing the old row. Similar function is used for moving instruction up, but new row is inserted above and old row is removed after that
     def moveDownClicked(self):
         button = self.sender()
         if button:
@@ -492,6 +511,7 @@ class PipetteGUI(QMainWindow):
                         if widget:
                             self.instructionsTabel.setCellWidget(row + 2, col, widget)
                 self.instructionsTabel.removeRow(row)
+
     def Z2Init(self):
         layout = QGridLayout()
         self.drawUpunits = QComboBox()
@@ -529,11 +549,10 @@ class PipetteGUI(QMainWindow):
         layout.addWidget(self.spitOutVolume,2,1,1,1)
         layout.addWidget(self.spitOutunits,2,2,1,1)
 
-        self.positonlabel2 = QLabel(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        self.samplePositonlabel2 = QLabel(f"Sample position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        self.tubePositonlabel2 = QLabel(f"Tube position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        testp = self.pipette_dixt[name]
-        self.steps2volumeLabel = QLabel(f"Current steps2volume {testp.steps2volume} stepes/μL")
+        self.positonlabel2 = QLabel(f"Current position: {[0,0,0]}")
+        self.samplePositonlabel2 = QLabel(f"Sample position: {[0,0,0]}")
+        self.tubePositonlabel2 = QLabel(f"Tube position: {[0,0,0]}")
+        self.steps2volumeLabel = QLabel(f"Current steps2volume {self.pipette_dixt[list(self.pipette_dixt.keys())[0]].steps2volume} stepes/μL")
         self.positonlabel2.setMaximumHeight(15)
         self.samplePositonlabel2.setMaximumHeight(15)
         self.tubePositonlabel2.setMaximumHeight(15)
@@ -610,9 +629,9 @@ class PipetteGUI(QMainWindow):
         self.M1ButtonDown.clicked.connect(self.moveM1Down)
         self.M2ButtonDown.clicked.connect(self.moveM2Down)
 
-        self.positonlabel = QLabel(f"Current position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        self.samplePositonlabel = QLabel(f"Sample position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        self.tubePositonlabel = QLabel(f"Tube position: {self.M0Position}, {self.M1Position}, {self.M2Position}")
+        self.positonlabel = QLabel(f"Current position: {[0,0,0]}")
+        self.samplePositonlabel = QLabel(f"Sample position: {[self.positionsSet['Sample']]}")
+        self.tubePositonlabel = QLabel(f"Tube position: {[self.positionsSet['Tube']]}")
         
         self.positonlabel.setMaximumHeight(15)
         self.samplePositonlabel.setMaximumHeight(15)
@@ -657,13 +676,12 @@ class PipetteGUI(QMainWindow):
         return layout
     def changePipette(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
+        self.updatePositionLabels(name)
 
     def savePosition(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
         position_name = self.PositionName.text() or f"Position{len(self.positionsSet)-2}"
-        self.positionsSet[position_name] = (self.pipette_dixt[name].m0Position, self.pipette_dixt[name].m1Position, self.pipette_dixt[name].m2Position)
+        self.positionsSet[position_name] = self.pipette_dixt[name].getPosition()
         self.PositionName.setText('')
         self.positionNameList.setCurrentIndex(0)
         self.positionNameList.addItem(position_name)
@@ -677,7 +695,6 @@ class PipetteGUI(QMainWindow):
         else:
             volume = 50
             self.drawUpVolume.setText("50")
-        #print("Prepare draw up")
         self.pipette_dixt[name].resetposition()
         self.pipette_dixt[name].prepareDrawUp()
         if self.positionsSet["Tube"] is None:
@@ -691,19 +708,9 @@ class PipetteGUI(QMainWindow):
             if error_dialog.exec_():
                 return
 
-        #print(f"Go to position of Tube: {self.positionsSet["Tube"]}")
         self.pipette_dixt[name].move2position(position=self.positionsSet["Tube"])
-        #print(f"Drawing up the solution: {volume} {self.drawUpunits.currentText()}")
         self.pipette_dixt[name].onlyDrawUp(volume=volume)
-        # self.pipette_dixt[name].drawUp(self.positionsSet["Tube"],volume)
-        self.M0Position = self.pipette_dixt[name].m0Position
-        self.M1Position = self.pipette_dixt[name].m1Position
-        self.M2Position = self.pipette_dixt[name].m2Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-
-        
+        self.updatePositionLabels(name)
         
     def spitOut(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -724,20 +731,9 @@ class PipetteGUI(QMainWindow):
             error_dialog.showMessage('Ustaw pozycję do liczbę kroków na μL lub załaduj z pliku')
             if error_dialog.exec_():
                 return
-        #print(f"Go to position of Sample: {self.positionsSet["Sample"]}")
         self.pipette_dixt[name].move2position(self.positionsSet["Sample"])
-        #print(f"Spitting out the solution: {volume} {self.spitOutunits.currentText()}")
         self.pipette_dixt[name].onlySplitOut(volume)
-        self.M0Position = self.pipette_dixt[name].m0Position
-        self.M1Position = self.pipette_dixt[name].m1Position
-        self.M2Position = self.pipette_dixt[name].m2Position
-
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-        # self.pipette_dixt[name].splitOut(volume,speed=self.m1speed)
-
-    
+        self.updatePositionLabels(name)
 
     def moveM0Up(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -750,11 +746,7 @@ class PipetteGUI(QMainWindow):
             self.M0Steps.setText("2000")
             self.M0Speed.setText("200")
         self.pipette_dixt[name].moveM0(self.m0steps,self.m0speed)
-        self.M0Position = self.pipette_dixt[name].m0Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-        #print(f"Moving pipette up by {self.m0steps} steps at speed {self.m0speed}")
+        self.updatePositionLabels(name)
 
     def moveM1Up(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -767,11 +759,7 @@ class PipetteGUI(QMainWindow):
             self.M1Steps.setText("50")
             self.M1Speed.setText("2000")
         self.pipette_dixt[name].moveM1(-self.m1steps,self.m1speed)
-        self.M1Position = self.pipette_dixt[name].m1Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-        #print(f"Moving pipette down by {self.m1steps} steps at speed {self.m1speed}")
+        self.updatePositionLabels(name)
 
     def moveM2Up(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -784,11 +772,7 @@ class PipetteGUI(QMainWindow):
             self.M2Steps.setText("100")
             self.M2Speed.setText("600")
         self.pipette_dixt[name].moveM2(-self.m2steps,self.m2speed)
-        self.M2Position = self.pipette_dixt[name].m2Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-        #print(f"Moving pipette left by {self.m2steps} steps at speed {self.m2speed}")
+        self.updatePositionLabels(name)
 
     def moveM0Down(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -801,11 +785,7 @@ class PipetteGUI(QMainWindow):
             self.M0Steps.setText("2000")
             self.M0Speed.setText("200")
         self.pipette_dixt[name].moveM0(-self.m0steps,self.m0speed)
-        self.M0Position = self.pipette_dixt[name].m0Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-        #print(f"Moving pipette down by {-self.m0steps} steps at speed {self.m0speed}")
+        self.updatePositionLabels(name)
 
     def moveM1Down(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -817,14 +797,8 @@ class PipetteGUI(QMainWindow):
             self.m1speed = 2000
             self.M1Steps.setText("50")
             self.M1Speed.setText("2000")
-        self.M1Position -= self.m1steps
         self.pipette_dixt[name].moveM1(self.m1steps,self.m1speed)
-        self.M1Position = self.pipette_dixt[name].m1Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-
-        #print(f"Moving pipette down by {-self.m1steps} steps at speed {self.m1speed}")
+        self.updatePositionLabels(name)
 
     def moveM2Down(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
@@ -838,44 +812,29 @@ class PipetteGUI(QMainWindow):
             self.M2Steps.setText("100")
             self.M2Speed.setText("600")
         self.pipette_dixt[name].moveM2(self.m2steps,self.m2speed)
-        self.M2Position = self.pipette_dixt[name].m2Position
-        self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-        self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
-
-
-        #print(f"Moving pipette left by {-self.m2steps} steps at speed {self.m2speed}")
+        self.updatePositionLabels(name)
 
     def saveSample(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
-
-        #print(f"Saving current position as Sample position {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        self.M0Position = self.pipette_dixt[name].m0Position
-        self.M1Position = self.pipette_dixt[name].m1Position
-        self.M2Position = self.pipette_dixt[name].m2Position
-        self.positionsSet["Sample"] = (self.M0Position, self.M1Position, self.M2Position)
+        self.positionsSet["Sample"] = (self.pipette_dixt[name].getPosition())
         self.samplePositonlabel.setText(f"Sample position: {self.positionsSet["Sample"]}")
         self.samplePositonlabel2.setText(f"Sample position: {self.positionsSet["Sample"]}")
 
-
     def saveTube(self):
         name = self.pipetteComboBoxForInstructionZ1.currentText()
-        #print(f"Saving current position as Tube position {self.M0Position}, {self.M1Position}, {self.M2Position}")
-        self.M0Position = self.pipette_dixt[name].m0Position
-        self.M1Position = self.pipette_dixt[name].m1Position
-        self.M2Position = self.pipette_dixt[name].m2Position
-        self.positionsSet["Tube"] = (self.M0Position, self.M1Position, self.M2Position)
+        self.positionsSet["Tube"] = (self.pipette_dixt[name].getPosition())
         self.tubePositonlabel.setText(f"Tube position: {self.positionsSet["Tube"]}")
         self.tubePositonlabel2.setText(f"Tube position: {self.positionsSet["Tube"]}")
+
     def __delete__(self, instance):
         for pipette in self.pipette_dixt:
             pipette.stopMotors()
             pipette.close()
 
-
 if __name__ == '__main__':
-    app = QApplication([])
-    gui = PipetteGUI()
     try:
+        app = QApplication([])
+        gui = PipetteGUI()
         gui.show()
         app.exec_()
     except Exception as e:

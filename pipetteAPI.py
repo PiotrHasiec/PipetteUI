@@ -3,18 +3,26 @@ from PyQt5 import QtTest
 import io
 
 import pyvisa
+
+class Instruction:
+    def __init__(self, pipette_name, instruction_type, position = None, position_name = None, value = None,speedset = [70,2000,500]):
+        self.pipette_name = pipette_name
+        self.instruction_type = instruction_type
+        self.position = position
+        self.position_name = position_name
+        self.value = value
+        self.speedset = speedset
+
 class PipetteAPI:
     def __init__(self, steps2volume, testmode,resource, verbose=False):
         self.testmode = testmode
         self.inst = resource
         if self.testmode == 0:
             self.write('s')
+        self.name2function = {"Move to position": self.move2position, "Prepare draw up": self.prepareDrawUp, "Draw up": self.onlyDrawUp, "Spit out": self.onlySplitOut, "Reset position": self.resetposition, "Move Motor M0": self.moveM0, "Move Motor M1": self.moveM1, "Move Motor M2": self.moveM2}
         self.steps2volume = steps2volume
-        self.m0Position = 0
-        self.m1Position = 0
-        self.m2Position = 0
+        self.position = (0,0,0)
         self.speedset = {'m0':80, 'm1':2000, 'm2':700}
-
         if verbose and not self.testmode:
             self.query('*IDN?')
         self.start()
@@ -47,11 +55,11 @@ class PipetteAPI:
                 continue
             if str(values).split(' ')[0] == '0':
                 if nr == '0':
-                    self.m0Position = 0
+                    self.position = (0, self.position[1], self.position[2])
                 if nr == '1':
-                    self.m1Position = 0
+                    self.position = (self.position[0], 0, self.position[2])
                 if nr == '2':
-                    self.m2Position = 0
+                    self.position = (self.position[0], self.position[1], 0)
                 return 0
 
     def move2stop(self, motor):
@@ -67,61 +75,40 @@ class PipetteAPI:
             return
         self.write('s')
    
-
-    # def absoluteMoveM0(self, steps, speed = 200):
-    #     if self.testmode:
-    #         return
-    #     self.start()
-    #     self.m0Position = 0
-    #     self.write(f'm0 {steps} {speed}')
-    #     self.m0Position = (self.m0Position + steps)*self.wait_for_stop('0')
-    #     self.stopMotors()
-
-    # def absoluteMoveM1(self, steps, speed = 3200):
-    #     if self.testmode:
-    #         return
-    #     self.move2stop('m1')
-    #     self.m1Position = 0
-    #     self.write(f'm1 {steps} {speed}')
-    #     self.m1Position = (self.m1Position + steps)*self.wait_for_stop('1')
-    #     self.stopMotors()
-
-    # def absoluteMoveM2(self, steps, speed = 700):
-    #     if self.testmode:
-    #         return
-    #     self.move2stop('m2')
-    #     self.m2Position = 0
-    #     self.write(f'm2 {steps} {speed}')
-    #     self.m2Position = (self.m2Position + steps)*self.wait_for_stop('2')
-    #     self.stopMotors()
         
-    def moveM0(self, steps, speed = 200):
+    def moveM0(self, steps, speed = None):
         if self.testmode:
-            self.m0Position = (self.m0Position + steps)
+            self.position = (self.position[0] + steps, self.position[1], self.position[2])
             self.wait_for_stop('0')
             return
+        if speed is None:
+            speed = self.speedset['m0']
         self.write(f'm0 {steps} {speed}')
-        self.m0Position = (self.m0Position + steps)
+        self.position = (self.position[0] + steps, self.position[1], self.position[2])
         self.wait_for_stop('0')
         self.stopMotors()
 
-    def moveM1(self, steps, speed = 2000):
+    def moveM1(self, steps, speed = None):
         if self.testmode:
-            self.m1Position = (self.m1Position + steps)
+            self.position = (self.position[0], self.position[1] + steps, self.position[2])
             self.wait_for_stop('1')
             return
+        if speed is None:
+            speed = self.speedset['m1']
         self.write(f'm1 {steps} {speed}')
-        self.m1Position = (self.m1Position + steps)
+        self.position = (self.position[0], self.position[1] + steps, self.position[2])
         self.wait_for_stop('1')
         self.stopMotors()
 
-    def moveM2(self, steps, speed = 700):
+    def moveM2(self, steps, speed = None):
         if self.testmode:
-            self.m2Position = (self.m2Position + steps)
+            self.position = (self.position[0], self.position[1], self.position[2] + steps)
             self.wait_for_stop('2')
             return
+        if speed is None:
+            speed = self.speedset['m2']
         self.write(f'm2 {steps} {speed}')
-        self.m2Position = (self.m2Position + steps)
+        self.position = (self.position[0], self.position[1], self.position[2] + steps)
         self.wait_for_stop('2')
         self.stopMotors()
 
@@ -144,8 +131,8 @@ class PipetteAPI:
         self.stopMotors()
 
     def move2position(self, position):
-        self.moveM2(position[2]-self.m2Position, self.speedset['m2'])
-        self.moveM0(position[0]-self.m0Position, self.speedset['m0'])
+        self.moveM2(position[2]-self.position[2], self.speedset['m2'])
+        self.moveM0(position[0]-self.position[0], self.speedset['m0'])
 
     def oneStepSplitOut(self,position, volume):
         self.move2position(position)
@@ -173,8 +160,24 @@ class PipetteAPI:
         QtTest.QTest.qWait(1000)
         self.moveM0(50000)
 
+    def getPosition(self):
+        return self.position
+    
+    def runInstruction(self, instruction):
+            if instruction.instruction_type == "Move to position":
+                self.name2function[instruction.instruction_type](instruction.position)
+            elif instruction.instruction_type in ["Prepare draw up", "Reset position"]:
+                self.name2function[instruction.instruction_type]()
+            elif instruction.instruction_type in ["Draw up", "Spit out","Move Motor M0", "Move Motor M1", "Move Motor M2"]:
+                self.name2function[instruction.instruction_type](instruction.value)
+
+
     def close(self):
+        self.resetposition()
         self.stopMotors()
         self.inst.close()
+    def __del__(self):
+        self.close()
+        super().__del__()
         
 
