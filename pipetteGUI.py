@@ -1,18 +1,17 @@
 import sys
 import pyvisa
-from time import sleep
-
-from PyQt5 import QtWidgets
+import serial
+from PyQt5 import QtWidgets, QtCore, QtTest
 import pipetteAPI
 import json
 from PyQt5.QtWidgets import QApplication, QComboBox, QFileDialog,  QGridLayout, QLabel, QLineEdit,  QMainWindow,  QTabWidget, QWidget,  QPushButton, QTableWidget, QTableWidgetItem, QGroupBox, QVBoxLayout
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg 
 from matplotlib.figure import Figure
 import numpy as np
-from PyQt5 import QtCore 
+from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtGui import QBrush, QColor, QIcon
 import logging
-import asyncio
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,47 +23,40 @@ logging.basicConfig(
 )
 logging.info("Application started")
 
-class MplCanvas(FigureCanvasQTAgg,):
-
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        fig = Figure(figsize=(width, height), dpi=dpi)
-        self.axes = fig.add_subplot(111)
-
-        super(MplCanvas, self).__init__(fig)
-        self.scatter_x=None
-        self.scatter_y=None
-        self.hline = None
-        self.vline = None
-    def scatter_values(self,scatter_x,scatter_y):
-        self.scatter_y = scatter_y
-        self.scatter_x = scatter_x
-        self.err_plot = self.axes.plot(scatter_x,scatter_y)
-        self.axes.set_ylim(0,np.max(scatter_y))
-        self.axes.set_xlim(0,np.array(scatter_y).shape[0])
+class instruction:
+    def __init__(self, pipette_name, instruction_type, position_name = None, value = None,speedset = [70,2000,500]):
+        self.pipette_name = pipette_name
+        self.instruction_type = instruction_type
+        self.position_name = position_name
+        self.value = value
+        self.speedset = speedset
 
 
 class PipetteGUI(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(QMainWindow, self).__init__(*args, **kwargs)
         self.pipette_dixt = {}
+        self.timer = time.time()
+        self.spincoater = None
         try:
             rm = pyvisa.ResourceManager('C:\\visa32.dll')
             list_of_pippetes = rm.list_resources('?*::45905::?*')
             for i,inst in enumerate(list_of_pippetes):
                 inst = rm.open_resource(inst)
                 self.pipette_dixt[f'pipette {i}'] = pipetteAPI.PipetteAPI(steps2volume=0.1, resource= inst, testmode=0)
-
         except:
             for i in range(3):
                 self.pipette_dixt[f"pipette test {i}"] = pipetteAPI.PipetteAPI(steps2volume=0.1, resource= None,testmode=1)
             logging.info(f"Error of importing library or connecting to the device. Running in test mode.")
-
-
+    
+        try:
+            self.spincoater = serial.Serial('COM5', 19200, timeout=1)
+        except:
+            logging.info(f"Error connecting to the spincoater. Spincoater functions will be unavailable.")
 
 
         self.filename = ""
         self.positionsSet = {"Initial": (0,0,0), "Sample": (0,0,0), "Tube": (0,0,0)}
-        self.steps2volume = None
         self.initPosition()
         self.setWindowTitle('Pipette Control')
         self.setGeometry(100, 100, 800, 500)
@@ -268,6 +260,11 @@ class PipetteGUI(QMainWindow):
         self.instructionType.addItem("Move Motor M0")
         self.instructionType.addItem("Move Motor M1")
         self.instructionType.addItem("Move Motor M2")
+        self.instructionType.addItem("Start Timer")
+        self.instructionType.addItem("Reset timer and wait")
+        self.instructionType.addItem("Wait")
+        self.instructionType.addItem("Run spincoater")
+        self.instructionType.addItem("Prepare spincoater")
         self.instructionType.currentTextChanged.connect(self.instructionTypeChanged)
 
         self.positionNameList = QComboBox()
@@ -280,8 +277,8 @@ class PipetteGUI(QMainWindow):
         
         self.addInstructionButton.clicked.connect(self.addInstruction)
         self.runInstructionsButton.clicked.connect(self.runInstructions)
-        self.insertToolBarLayout.addWidget(self.pipetteComboBoxForInstructionZ3)
         self.insertToolBarLayout.addWidget(self.instructionType)
+        self.insertToolBarLayout.addWidget(self.pipetteComboBoxForInstructionZ3)
         self.insertToolBarLayout.addWidget(self.positionNameList)
         self.insertToolBarLayout.addWidget(self.volume)
         self.volume.setVisible(False)
@@ -311,23 +308,59 @@ class PipetteGUI(QMainWindow):
         elif instruction_type == "Prepare draw up":
             self.positionNameList.setVisible(False)
             self.volume.setVisible(False)
+        elif instruction_type == "Start Timer":
+            self.pipetteComboBoxForInstructionZ3.setVisible(False)
+            self.positionNameList.setVisible(False)
+            self.volume.setVisible(False)
+            self.volume.setPlaceholderText("Czas w sekundach")
+        elif instruction_type == "Reset timer and wait":
+            self.pipetteComboBoxForInstructionZ3.setVisible(False)
+            self.positionNameList.setVisible(False)
+            self.volume.setVisible(True)
+            self.volume.setPlaceholderText("Czas w sekundach")
+        elif instruction_type == "Wait":
+            self.pipetteComboBoxForInstructionZ3.setVisible(False)
+            self.positionNameList.setVisible(False)
+            self.volume.setVisible(True)
+            self.volume.setPlaceholderText("Czas w sekundach")
+        elif instruction_type == "Run spincoater" or instruction_type == "Prepare spincoater":
+            self.pipetteComboBoxForInstructionZ3.setVisible(False)
+            self.positionNameList.setVisible(False)
+            self.volume.setVisible(False)
 
     def setColortoRow(self, table, rowIndex, color):
         for j in range(table.columnCount()-3):
             table.item(rowIndex, j).setBackground(color)
 
+    @pyqtSlot()
     def runInstructions(self):
         Deactived = QBrush(QColor(155, 155, 155))
         CurrentColor = QBrush(QColor(200, 255, 200))
         Actived = QBrush(QColor(255, 255, 255))
+        self.setEnabled(False)
         for row in range(self.instructionsTabel.rowCount()):
             self.setColortoRow(self.instructionsTabel, row, CurrentColor)
-            sleep(0.1)
+            self.instructionsTabel.scrollToItem(self.instructionsTabel.item(row, 0), QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter)
+            self.repaint()
             name = self.instructionsTabel.item(row,0).text()
             instruction_type = self.instructionsTabel.item(row, 1).text()
             if instruction_type == "Move to position":
                 position_name = self.instructionsTabel.item(row, 2).text()
                 self.pipette_dixt[name].move2position(self.positionsSet[position_name])
+            elif instruction_type == "Run spincoater":
+                self.spincoater.write(b'go=4 \n')
+            elif instruction_type == "Prepare spincoater":
+                QtTest.QTest.qWait(1000)
+                self.spincoater.write(b'va=1 \n')
+                QtTest.QTest.qWait(1000)
+                self.spincoater.write(b'em \n')
+                QtTest.QTest.qWait(1000)
+                self.spincoater.write(b'rm \n')
+                QtTest.QTest.qWait(1000)
+                self.spincoater.write(b'pg=0 \n')
+
+                QtTest.QTest.qWait(1000)
+                self.spincoater.write(b'up \n')
 
             elif instruction_type == "Draw up":
                 volume = self.instructionsTabel.item(row, 3).text()
@@ -348,9 +381,28 @@ class PipetteGUI(QMainWindow):
             elif instruction_type == "Move Motor M2":
                 volume = self.instructionsTabel.item(row, 3).text()
                 self.pipette_dixt[name].moveM2(steps=int(volume))
+            elif instruction_type == "Start Timer":
+                self.timer = time.time()
+            elif instruction_type == "Reset timer and wait":
+                volume = self.instructionsTabel.item(row, 3).text()
+                self.timer = time.time()
+                QtCore.QTimer.singleShot( int(int(volume)-time.time()+self.timer)*1000, lambda: self.setEnabled(True))
+                self.setEnabled(False)
+                while time.time() - self.timer < int(volume):
+                    QtTest.QTest.qWait(100)
+
+            elif instruction_type == "Wait":
+                volume = self.instructionsTabel.item(row, 3).text()
+                QtCore.QTimer.singleShot( int(int(volume)-time.time()+self.timer)*1000, lambda: self.setEnabled(True))
+                self.setEnabled(False)
+                while time.time() - self.timer < int(volume):
+                    QtTest.QTest.qWait(100)
+
             self.positonlabel.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
             self.positonlabel2.setText(f"Current position: {self.pipette_dixt[name].m0Position}, {self.pipette_dixt[name].m1Position}, {self.pipette_dixt[name].m2Position}")
             self.setColortoRow(self.instructionsTabel, row, Deactived)
+            self.repaint()
+            self.setEnabled(True)
         for i in range(self.instructionsTabel.rowCount()):
             self.setColortoRow(self.instructionsTabel, i, Actived)
 
@@ -358,7 +410,7 @@ class PipetteGUI(QMainWindow):
         instruction_type = self.instructionType.currentText()
         position_name = "-"
         volume = "-"
-        if instruction_type in ["Draw up", "Spit out"]:
+        if instruction_type in ["Draw up", "Spit out", "Move Motor M0", "Move Motor M1", "Move Motor M2", "Reset timer and wait", "Wait"]:
             if not self.volume.text().isdigit():
                 error_dialog = QtWidgets.QErrorMessage()
                 error_dialog.showMessage('Proszę podać liczbę w polu objętości/kroków')
@@ -376,7 +428,6 @@ class PipetteGUI(QMainWindow):
         moveDownButton = QtWidgets.QPushButton(QIcon("down.svg"), "")
         moveDownButton.clicked.connect(self.moveDownClicked)
 
-        position_name = self.positionNameList.currentText()
         row_position = self.instructionsTabel.rowCount()
         pipette_name = self.pipetteComboBoxForInstructionZ3.currentText()
         self.instructionsTabel.insertRow(row_position)
@@ -634,7 +685,7 @@ class PipetteGUI(QMainWindow):
             error_dialog.showMessage('Ustaw pozycję do pobrania lub załaduj z pliku')
             if error_dialog.exec_():
                 return
-        if self.steps2volume is None:
+        if self.pipette_dixt[name].steps2volume is None:
             error_dialog = QtWidgets.QErrorMessage()
             error_dialog.showMessage('Ustaw pozycję do liczbę kroków na μL lub załaduj z pliku')
             if error_dialog.exec_():
@@ -668,7 +719,7 @@ class PipetteGUI(QMainWindow):
             if error_dialog.exec_():
                 return
             
-        if self.steps2volume is None:
+        if self.pipette_dixt[name].steps2volume is None:
             error_dialog = QtWidgets.QErrorMessage()
             error_dialog.showMessage('Ustaw pozycję do liczbę kroków na μL lub załaduj z pliku')
             if error_dialog.exec_():

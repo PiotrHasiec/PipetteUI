@@ -1,5 +1,5 @@
 import logging
-from time import sleep
+from PyQt5 import QtTest
 import io
 
 import pyvisa
@@ -13,7 +13,7 @@ class PipetteAPI:
         self.m0Position = 0
         self.m1Position = 0
         self.m2Position = 0
-        self.speedset = {'m0':500, 'm1':2000, 'm2':1000}
+        self.speedset = {'m0':80, 'm1':2000, 'm2':700}
 
         if verbose and not self.testmode:
             self.query('*IDN?')
@@ -21,21 +21,23 @@ class PipetteAPI:
 
     def write(self, command):
         if self.testmode:
-            return
+            QtTest.QTest.qWait(100)
+            
         self.inst.write(command)
-        sleep(0.1)
+        QtTest.QTest.qWait(100)
 
     def query(self, command):
         if self.testmode:
+            QtTest.QTest.qWait(100) 
             return 0
         q = self.inst.query(command)
-        sleep(0.1)
+        QtTest.QTest.qWait(100)
         return q
 
     def wait_for_stop(self,nr):
        
         if self.testmode:
-            sleep(0.1)
+            QtTest.QTest.qWait(100)
             return 1
         while True:
             values = self.query(f'g{nr}')
@@ -54,12 +56,14 @@ class PipetteAPI:
 
     def move2stop(self, motor):
         if self.testmode:
+            QtTest.QTest.qWait(100)
             return
         while self.wait_for_stop(motor):
             self.write(f'{motor} 100 {self.speedset[motor]}')
         
     def stopMotors(self):
         if self.testmode:
+            QtTest.QTest.qWait(100) 
             return
         self.write('s')
    
@@ -166,7 +170,7 @@ class PipetteAPI:
     def onlyDrawUp(self, volume):
         value = -(volume)/self.steps2volume
         self.moveM1(int(value), self.speedset['m1'])
-        sleep(1.0)
+        QtTest.QTest.qWait(1000)
         self.moveM0(50000)
 
     def close(self):
